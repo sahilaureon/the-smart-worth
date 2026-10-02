@@ -1,0 +1,8 @@
+{
+  "name": "Remix The Smart Worth",
+  "description": "A premium skill-building platform. Master content creation, finance, and business with our curated packages at The Smart Worth.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /dashboard/
+Disallow: /checkout/
+Disallow: /login
+Disallow: /signup
+Disallow: /reset-password
+Disallow: /api/
+
+Sitemap: https://thesmartworth.site/sitemap.xml

@@ -1,0 +1,173 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800;900&family=Cinzel:wght@700;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
+
+  --color-primary: #4F46E5;
+  --color-secondary: #0F172A;
+  --color-accent: #4F46E5;
+  --color-cta: #4F46E5;
+  --color-light-grey: #F1F5F9;
+
+  @keyframes progress {
+    0% { background-position: 0 0; }
+    100% { background-position: 1rem 0; }
+  }
+}
+
+@layer base {
+  html {
+    font-size: 14px;
+  }
+  
+  @media (min-width: 768px) {
+    html {
+      font-size: 15px;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    html {
+      font-size: 16px;
+    }
+  }
+
+  @media (min-width: 1536px) {
+    html {
+      font-size: 17px;
+    }
+  }
+
+  :root {
+    --bg-main: #F8FAFC;
+    --bg-card: #FFFFFF;
+    --text-primary: #1E293B;
+    --text-muted: #64748B;
+    --border-color: #E2E8F0;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display tracking-tight text-[#0F172A];
+  }
+
+  body {
+    @apply font-sans transition-colors duration-300 antialiased;
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+  }
+
+  /* Prevent URL preview on mobile/tap-hold */
+  img, a, .no-preview {
+    -webkit-touch-callout: none !important;
+  }
+
+  button, .btn {
+    @apply font-sans font-semibold cursor-pointer transition-all duration-150 select-none;
+  }
+
+  /* Instant brightness low / subtle dark dim on click, active press, or loading (excluding BrutalistButton) */
+  button[data-clicking="true"]:not([data-brutalist-btn="true"]),
+  .btn[data-clicking="true"]:not([data-brutalist-btn="true"]),
+  button[data-loading="true"]:not([data-brutalist-btn="true"]) {
+    filter: brightness(0.85) !important;
+  }
+
+  button:disabled:not([data-brutalist-btn="true"]),
+  .btn:disabled:not([data-brutalist-btn="true"]) {
+    @apply cursor-not-allowed opacity-85;
+  }
+
+  /* Supabase-style loading spinner on click:
+     1) If the button has a direct child SVG icon, swap the first SVG in-place with a spinner so button width never jumps */
+  button[data-clicking="true"]:not(:has(.animate-spin)):not([data-brutalist-btn="true"]):has(> svg) > svg:first-of-type,
+  button[data-loading="true"]:not(:has(.animate-spin)):not([data-brutalist-btn="true"]):has(> svg) > svg:first-of-type {
+    display: none !important;
+  }
+
+  button[data-clicking="true"]:not(:has(.animate-spin)):not([data-brutalist-btn="true"]):has(> svg)::before,
+  button[data-loading="true"]:not(:has(.animate-spin)):not([data-brutalist-btn="true"]):has(> svg)::before {
+    content: "";
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 9999px;
+    vertical-align: middle;
+    animation: adminBtnSpin 0.55s linear infinite;
+    flex-shrink: 0;
+  }
+
+  /* 2) If the button is a text button without any SVG icon, show a compact spinner on the left */
+  button[data-clicking="true"]:not(:has(svg)):not(:has(.animate-spin)):not([data-brutalist-btn="true"]):not([data-empty-btn="true"])::before,
+  button[data-loading="true"]:not(:has(svg)):not(:has(.animate-spin)):not([data-brutalist-btn="true"]):not([data-empty-btn="true"])::before {
+    content: "";
+    display: inline-block;
+    width: 0.85em;
+    height: 0.85em;
+    margin-right: 0.45rem;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 9999px;
+    vertical-align: -0.1em;
+    animation: adminBtnSpin 0.55s linear infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes adminBtnSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+}
+
+@layer components {
+  /* Classic card elevation */
+  .premium-card {
+    @apply transition-colors duration-200 shadow-sm border border-slate-200;
+  }
+
+  /* Classic button hover effect */
+  .btn-hover {
+    @apply transition-all duration-150 active:brightness-85;
+  }
+}
+
+/* Global 3D/Shadow overrides for cards and sections */
+section {
+  @apply leading-relaxed;
+}
+
+[class*="rounded-3xl"], [class*="rounded-[2.5rem]"] {
+  @apply shadow-[0_10px_50px_rgba(0,0,0,0.03)] transition-shadow duration-500;
+}
+
+[class*="rounded-3xl"]:hover, [class*="rounded-[2.5rem]"]:hover {
+  @apply shadow-[0_20px_60px_rgba(97,93,250,0.08)];
+}
+
+/* Custom Scrollbar Styling */
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #e2e8f0;
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #cbd5e1;
+  }
+}

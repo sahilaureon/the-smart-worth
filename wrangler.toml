@@ -1,0 +1,11 @@
+name = "tsw-api-worker"
+main = "worker/index.ts"
+compatibility_date = "2024-04-03"
+
+[vars]
+FRONTEND_URL = "https://thesmartworth.site"
+
+# Production environment variables to be set via: 
+# wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+# wrangler secret put RAZORPAY_KEY_SECRET
+# wrangler secret put CLOUDINARY_API_SECRET

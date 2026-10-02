@@ -1,0 +1,822 @@
+THE SMART WORTH — COMPLETE WEBSITE ANALYSIS
+
+============================================================
+1. COMPLETE WEBSITE STRUCTURE
+============================================================
+
+Below is the verified page-by-page breakdown of The Smart Worth web application based on its actual routes, components, and codebase implementation.
+
+1.1 Homepage (/) [VERIFIED]
+- Page Name: Home (src/pages/Home.tsx)
+- Purpose: Serves as the primary landing page introducing The Smart Worth EdTech ecosystem, showcasing platform introduction video, statistics, featured courses, package plans, how-it-works steps, platform advantages, testimonials, and FAQs.
+- What the User Sees:
+  * Header (Navbar): Top navigation bar with brand logo and menu links.
+  * Hero Section: Badge ("FUTURE OF E-LEARNING"), headline ("Learn Big. Earn Smart. Grow Fast with The Smart Worth"), subheadline, two main CTA buttons, trust badge ("4.9/5 Rating from 15k+ Learners"), and a 2x2 grid of metric cards (15K+ Students, 50+ Courses, 100+ Trainers, 4.9 Rating).
+  * Video Showcase Card: Titled "Watch How The Smart Worth Works" ("COMPLETE PLATFORM OVERVIEW & STEP-BY-STEP GUIDE"), featuring an interactive 16:9 dark glassmorphic video player container (aspect-video) with a pulsing cyan play button and message "Video Tour Coming Soon — Official platform walkthrough video will be embedded here", plus 3 highlights at the bottom (100% Practical Learning, Step-by-Step Guidance, Verified Certification).
+  * About Section: "Empowering Dreams Through Digital Education" with 4 highlights (Practical Curriculum, Learn at Your Own Pace, Community Support, Verified Certificates) and an "Explore Our Story" button.
+  * Stats Ribbon: Dark navy bar displaying 15,000+ Active Learners, 50+ Premium Courses, 100+ Expert Trainers, and 98% Satisfaction Rate.
+  * Popular Courses Section: Displays up to 6 active courses fetched from /api/courses (or a "No Courses Available Yet" empty state if none are in the database) with a "View All Courses" button.
+  * Packages Section: "Choose Your Learning Package" displaying active packages fetched from /api/packages in a 3-column grid using PackageCard.
+  * How It Works Section: "Your Journey in 4 Simple Steps" (01. Choose Your Package, 02. Complete Registration, 03. Start Learning, 04. Get Certified & Grow).
+  * Why Choose Us Section: "The Smart Worth Advantage" (Industry Relevant Skills, Affordable Pricing, Dedicated Support, Lifetime Access) + dark blue callout card ("Ready to Upgrade Your Skills?" with "Enroll Now" button).
+  * Testimonials Section: "What Our Students Say" featuring 3 student reviews (Rahul Sharma, Priya Patel, Amit Kumar).
+  * FAQ Accordion Section: "Frequently Asked Questions" with 5 expandable Q&A items.
+  * Bottom CTA Banner: Gradient blue banner "Start Your Digital Journey Today" with "Get Started Now" and "Explore Courses" buttons.
+  * Footer: Dark #0A0E27 footer with 4 social/contact pill buttons and copyright notice.
+- Main Buttons & Where Each Leads:
+  * "Get Started" (Hero) -> /register (or /dashboard if logged in)
+  * "Explore Courses" (Hero) -> /courses
+  * "Play Video" (Video Player Center Button) -> Interactive preview button on homepage (ready for YouTube link embed)
+  * "Explore Our Story" (About section) -> /about
+  * "View All Courses" -> /courses
+  * "Buy Now" / "Go to Dashboard" (on Package Cards) -> /package/:id (or /dashboard if logged in)
+  * "Enroll Now" (Why Choose Us card) -> /register (or /dashboard if logged in)
+  * "Get Started Now" (Bottom CTA) -> /register (or /dashboard if logged in)
+  * "Explore Courses" (Bottom CTA) -> /courses
+- User Action & Result: Users scroll through sections, click FAQ accordions to toggle answers, click course/package cards to inspect details, or click CTAs to register/explore.
+
+1.2 Header & Navigation Menu (src/components/Navbar.tsx) [VERIFIED]
+- Component Name: Global Navigation Bar (Navbar)
+- Purpose: Provides top-level navigation across all public pages and quick access to Login, Registration, or User Dashboard.
+- What the User Sees:
+  * Brand Logo & Name: Dynamic site logo (or graduation cap icon fallback) + "The Smart Worth".
+  * Desktop Links: Home (/), Packages (dropdown hover menu listing all active packages + "View All Packages"), Courses (/courses), About (/about), Contact (/about#contact).
+  * Desktop Right Action Buttons:
+    - When logged out: "Login" (/login) and "Sign Up" (/register) styled as 3D brutalist buttons.
+    - When logged in: "Dashboard" (/dashboard) (or "Admin Panel" /admin if admin role) and "Logout" button.
+  * Mobile Menu Button: Hamburger icon (Menu / X) on the top-right that slides open a full-screen right-side drawer containing the user profile summary (if logged in), navigation links (Home, expandable Packages submenu, Courses, About, Contact), and bottom action buttons (Login + Create Account or Dashboard + Logout).
+
+1.3 Login Page (/login) [VERIFIED]
+- Page Name: Login (src/pages/Login.tsx)
+- Purpose: Authenticates existing users and admins into their accounts.
+- What the User Sees:
+  * Page header banner ("Welcome Back").
+  * Card titled "Sign In" ("Enter your credentials to access your account").
+  * Input fields: "Email Address" and "Password" (with eye icon to show/hide password).
+  * "Remember me" checkbox and "Forgot password?" link.
+  * "Sign In" submit button (BrutalistButton).
+  * "Don't have an account? Create Account" link at bottom.
+- Main Buttons & Destinations:
+  * "Forgot password?" -> /forgot-password
+  * "Sign In" -> Submits credentials to /api/login
+  * "Create Account" -> /register
+- What Happens After Action: On valid login, user session is stored in localStorage, and the user is redirected to /dashboard (or /admin if the user is an administrator). On invalid credentials, a shake animation and red error alert are displayed.
+
+1.4 Registration Page (/register) [VERIFIED]
+- Page Name: Register (src/pages/Register.tsx)
+- Purpose: Allows new users to create an account, select a learning package, optionally apply a referral code, and complete payment to activate access.
+- What the User Sees:
+  * Page header banner ("Join The Smart Worth").
+  * Step 1: Personal Details & Package Selection Form:
+    - Inputs: Full Name, Email Address, Mobile Number (10 digits), Password (with show/hide toggle), State (dropdown of all Indian states/UTs), and Referral Code (Optional) (auto-validates via /api/validate-referral/:code and shows "Valid Referral Code" or "Invalid referral code").
+    - Select Your Package: Grid of available packages showing package image, name, description, and price (₹). Clicking a card selects that package.
+    - Order Summary Box: Shows selected package name, Referral Discount (if applicable), and Total Payable amount.
+    - Terms Checkbox: "I agree to the Terms & Conditions and Privacy Policy".
+    - Submit Button: "Proceed to Payment" (if paid package) or "Complete Registration" (if price is 0).
+- Main Buttons & Destinations:
+  * "Proceed to Payment" -> Validates fields and opens CustomCheckoutModal (QR/UPI payment & UTR verification modal) or processes signup.
+  * "Sign In" link -> /login
+- What Happens After Action: After completing payment and submitting the 12-digit UTR in the checkout modal, the account and order are created, confetti fires, and a "Payment Submitted! Pending Verification" screen (or account confirmation screen with "Go to Dashboard") is displayed.
+
+1.5 Forgot Password (/forgot-password) & Reset Password (/reset-password) [VERIFIED]
+- Page Names: Forgot Password (src/pages/ForgotPassword.tsx) & Create New Password (src/pages/ResetPassword.tsx)
+- Purpose: Enables users to recover access to their account via email reset link.
+- What the User Sees:
+  * /forgot-password: Email address input + "Send Reset Link" button + "Back to Login" link.
+  * /reset-password: "New Password" and "Confirm New Password" inputs + "Update Password" button.
+- What Happens After Action: Submitting /forgot-password triggers a password reset email and shows a "Check Your Email" confirmation state. Submitting /reset-password updates the user's password via /api/update-user, launches confetti, and shows a "Go to Login" button.
+
+1.6 Public Packages Listing (/packages) & Package Details (/package/:id) [VERIFIED]
+- Page Names: Our Packages (src/pages/Packages.tsx) & Package Details (src/pages/PackageDetails.tsx)
+- Purpose: Displays all available learning bundles and deep-dive details for each individual package.
+- What the User Sees:
+  * On /packages: Header "Our Packages", section "Choose Your Learning Path", and a 3-column grid of PackageCard components.
+  * On /package/:id:
+    - Package badge ("Package"), Package Name, description, and included courses count ("X Courses Included").
+    - "Buy Now for ₹[Price]" button (or "Go to Dashboard" if logged in).
+    - Package thumbnail card with quick highlights (Full Lifetime Access, Access on mobile and desktop, Certificate of completion).
+    - "What You'll Learn" checklist grid.
+    - "Courses in this Package" grid showing every course mapped to that package (thumbnail, title, instructor, duration, and "Enroll Package to Unlock").
+    - "Why Choose Our Packages?" 3-column feature section (Industry-Recognized Certificates, Learn at Your Own Pace, Community & Networking).
+    - Bottom CTA card ("Ready to Start Your Journey?" with "Buy Package Now" button).
+- Main Buttons & Destinations:
+  * "Buy Now" / "Buy Package Now" -> Opens CustomCheckoutModal directly on /package/:id, or navigates to /package/:id from PackageCard.
+
+1.7 Public Courses Listing (/courses) & Course Details (/course/:id) [VERIFIED]
+- Page Names: Our Courses (src/pages/PublicCourses.tsx) & Course Details (src/pages/CourseDetails.tsx)
+- Purpose: Allows visitors to browse all individual courses, search by keyword, and inspect course curriculum/details before enrolling.
+- What the User Sees:
+  * On /courses:
+    - Search bar ("Search courses by title or description...").
+    - 4-column grid of CourseCard items showing thumbnail, "Course" badge, rating (4.8), title, instructor name, duration (10h+), and "Enroll Now" button.
+  * On /course/:id:
+    - Breadcrumb back button ("Back to Courses").
+    - Category badge, Course Title, description, rating (4.8 (120+ reviews)), student count (500+ students), duration, language (Hindi / English), and instructor card.
+    - Right-side sticky enrollment card showing video preview thumbnail, "Included in Packages" badges (linking to /package/:id), "Enroll Now" button, and "This course includes" list (Full lifetime access, Access on mobile and TV, Certificate of completion).
+    - "What you'll learn" box (6 learning outcomes).
+    - "Course Content" list showing all modules/lessons and durations with lock icons.
+- Main Buttons & Destinations:
+  * "Enroll Now" on /courses -> /course/:id
+  * "Enroll Now" on /course/:id -> Redirects to /dashboard/courses (if logged in) or /package/:id (for the package that includes this course, or /packages if not mapped).
+
+1.8 User Dashboard (/dashboard/*) [VERIFIED]
+- Page Name: Student Dashboard (src/pages/Dashboard.tsx + sub-routes)
+- Purpose: Authenticated learner portal for watching courses, managing packages, tracking referral commissions, requesting payouts, completing KYC, generating certificates, and updating profile/settings.
+- Sub-Routes Verified:
+  * /dashboard -> Overview.tsx
+  * /dashboard/profile -> Profile.tsx
+  * /dashboard/packages -> MyPackages.tsx
+  * /dashboard/courses -> Courses.tsx
+  * /dashboard/course/:courseId -> CoursePlayer.tsx
+  * /dashboard/earning -> Earning.tsx
+  * /dashboard/certificate -> Certificate.tsx
+  * /dashboard/kyc -> KYCPanel.tsx
+  * /dashboard/settings -> Settings.tsx
+
+1.9 About & Contact Page (/about) [VERIFIED]
+- Page Name: About Us (src/pages/About.tsx)
+- Purpose: Explains The Smart Worth's mission, vision, stats, and provides a contact form and direct support channels.
+- What the User Sees:
+  * Header "About Us".
+  * "Empowering the Next Generation of Digital Leaders" story section with 15K+ Active Students and 50+ Expert Courses callouts.
+  * Our Mission and Our Vision cards.
+  * #contact Section ("Get In Touch"):
+    - Contact cards: Email Us (support@thesmartworth.com), Call Us (+91 98765 43210, Mon-Fri from 10am to 6pm), and Visit Us (New Delhi, India).
+    - Contact Form ("Send a Message"): Inputs for Your Name, Email Address, Subject, Message, and "Send Message" button.
+
+1.10 Blog Page (/blog) [VERIFIED]
+- Page Name: Blog (src/pages/Blog.tsx)
+- Purpose: Displays educational articles and platform insights.
+- What the User Sees: Header "Our Blog" and section "Latest Insights", currently displaying an empty-state placeholder ("No Blog Posts Yet — We're working on bringing you the best insights and articles. Stay tuned!").
+
+1.11 Legal & Policy Pages (/privacy, /terms, /refund) [VERIFIED]
+- Privacy Policy (/privacy - src/pages/PrivacyPolicy.tsx): Covers Information Collection, How We Use Information, Information Sharing, Data Security, Your Choices, Changes to Policy, and Contact Us (support@thesmartworth.com).
+- Terms & Conditions (/terms - src/pages/TermsConditions.tsx): Covers Acceptance of Terms, User Accounts, Course Enrollment & Access (personal, non-commercial lifetime access), Referral & Affiliate Program rules (ethical marketing, no spam/misleading claims), Intellectual Property, Limitation of Liability, and Governing Law (laws of India).
+- Refund Policy (/refund - src/pages/RefundPolicy.tsx):
+  * Highlighted Warning Banner: "Strict 2-Hour Refund Window — All refund requests must be submitted within 2 hours of completing your purchase. Any requests made after this 2-hour window will not be eligible for a refund under any circumstances."
+  * Covers Eligibility for Refund (duplicate payment or technical unresolvable issue within 2 hours, provided user has not downloaded materials, generated a certificate, or earned referral commission), Non-Refundable Situations, and How to Request a Refund (support@thesmartworth.com with Registered Email, Mobile, Order ID/Transaction Screenshot, and Reason).
+
+1.12 Footer (src/components/Footer.tsx) [VERIFIED]
+- Component Name: Global Footer (Footer)
+- Purpose: Provides quick social/support contact buttons and copyright information at the bottom of public pages.
+- What the User Sees:
+  * Dark navy background (#0A0E27).
+  * 4 centered 3D white pill buttons (w-[165px] h-[50px] on mobile in a 2x2 grid; centered single row on desktop):
+    1. Instagram (https://www.instagram.com/thesmartworth?igsh=b2t3b214bWQ5b2c=)
+    2. WhatsApp (https://wa.me/919471619703)
+    3. Telegram (https://t.me/TheSmartWorth)
+    4. Email (mailto:helplinesmartworth@gmail.com)
+  * Copyright Notice: "© 2026 The Smart Worth. All rights reserved."
+
+1.13 Verification of Other Mentioned Sections
+- Books / eBooks: Not Present (VERIFIED ABSENT). There is no Books or eBooks page, section, or reader on the website.
+- Support Tickets: Not Present as a Ticket System (VERIFIED ABSENT). There is no ticket-creation/ticket-status queue for students; instead, support is provided via direct WhatsApp, Telegram, Email, Contact Form (/about#contact), and a Profile Update Request system in Settings.
+
+
+============================================================
+2. COMPLETE NEW USER JOURNEY (IN SIMPLE HINDI)
+============================================================
+
+यहाँ The Smart Worth वेबसाइट पर एक नए यूजर (New Visitor) का पूरा और वास्तविक (100% Verified) सफर आसान हिंदी में दिया गया है:
+
+1. Website Visit (वेबसाइट पर आना):
+यूजर अपने मोबाइल या लैपटॉप के ब्राउज़र में The Smart Worth वेबसाइट खोलता है। सबसे ऊपर उसे नेविगेशन बार (Home, Packages, Courses, About, Contact, Login, Sign Up) दिखाई देता है।
+
+2. Homepage Exploration (होमपेज देखना):
+यूजर होमपेज पर बड़े अक्षरों में "Learn Big. Earn Smart. Grow Fast with The Smart Worth" देखता है। थोड़ा नीचे स्क्रॉल करने पर उसे "Watch How The Smart Worth Works" का वीडियो प्लेयर सेक्शन दिखता है, जहाँ वह प्लेटफॉर्म कैसे काम करता है यह समझ सकता है। इसके नीचे वह वेबसाइट के आंकड़े (15K+ Students, 50+ Courses), कोर्सेज, पैकेजेस, 4 आसान स्टेप्स, स्टूडेंट्स के रिव्यूज और FAQ (सवाल-जवाब) देखता है।
+
+3. Package / Course Discovery (कोर्स और पैकेज की जानकारी लेना):
+यूजर मेन्यू से Courses या Packages पर क्लिक करता है। वह अलग-अलग लर्निंग पैकेजेस की कीमत (₹) और उनमें मिलने वाले कोर्सेज की लिस्ट देखता है। किसी भी पैकेज के "Buy Now" बटन पर क्लिक करके वह उस पैकेज के अंदर कौन-कौन से कोर्सेज शामिल हैं, यह विस्तार से देख सकता है।
+
+4. Registration & Package Selection (रजिस्ट्रेशन और पैकेज चुनना):
+जब यूजर जुड़ने का फैसला करता है, तो वह "Get Started" या "Sign Up" (/register) पर क्लिक करता है। यहाँ वह अपना Full Name, Email Address, Mobile Number, Password, State भरता है और यदि उसके पास किसी दोस्त का Referral Code है, तो वह उसे डालता है। उसी फॉर्म में नीचे वह अपना पसंदीदा Learning Package चुनता है और Terms & Conditions पर टिक करके "Proceed to Payment" दबाता है।
+
+5. Payment Process (QR कोड या UPI से पेमेंट करना):
+स्क्रीन पर एक सुरक्षित Checkout Payment Modal खुलता है। इसमें यूजर को पैकेज की कुल राशि और एक UPI QR Code तथा UPI ID दिखाई देती है।
+- यूजर अपने किसी भी UPI ऐप (PhonePe, Google Pay, Paytm) से QR कोड स्कैन करके या UPI ID कॉपी करके पेमेंट करता है।
+- पेमेंट करने के बाद यूजर "I Have Paid — Enter UTR" पर क्लिक करता है और अपने पेमेंट का 12-अंकों का UTR / Reference Number डालकर "Verify & Complete Order" बटन दबाता है।
+
+6. Account Access & Verification (अकाउंट और डैशबोर्ड एक्सेस):
+UTR सबमिट होते ही उसका अकाउंट बन जाता है और ऑर्डर Pending Verification में चला जाता है। एडमिन द्वारा UTR वेरीफाई करते ही उसका पैकेज और कोर्सेज पूरी तरह अनलॉक (Active) हो जाते हैं। यूजर /login से या सीधे "Go to Dashboard" पर क्लिक करके अपने Student Dashboard (/dashboard) में प्रवेश करता है।
+
+7. Dashboard & Profile (डैशबोर्ड और प्रोफाइल देखना):
+डैशबोर्ड में बाईं तरफ (मोबाइल में नीचे और ऊपर मेन्यू में) उसे सभी सेक्शन मिलते हैं: Overview, Profile, My Packages, Courses, Earning, Certificate, KYC Panel, और Settings। Profile में उसे अपनी TSW ID और पर्सनल डिटेल्स दिखती हैं।
+
+8. Learning Experience (कोर्स के वीडियो देखना और सीखना):
+यूजर Courses सेक्शन में जाकर अपने अनलॉक किए गए कोर्स पर "Start Learning" क्लिक करता है। इससे Course Player खुलता है, जहाँ बाईं तरफ वीडियो प्लेयर और दाईं तरफ सारे Course Modules (Lessons) की लिस्ट होती है। यूजर एक-एक करके वीडियो देखता है और "Mark Complete" बटन दबाकर अपनी प्रोग्रेस (0% से 100% तक) पूरी करता है।
+
+9. Completion & Certificate (कोर्स पूरा करना और सर्टिफिकेट डाउनलोड करना):
+कोर्स के सभी लेसन पूरे (100% Complete) करने के बाद, या Certificate सेक्शन (/dashboard/certificate) में जाकर, यूजर अपना कोर्स चुनता है और तुरंत अपना वेरीफाइड Certificate of Completion (PDF या PNG इमेज में) डाउनलोड कर लेता है।
+
+10. Learn & Earn / Referral & KYC (रेफरल और कमाई निकालना):
+यदि यूजर के पास एक्टिव पैकेज है, तो वह KYC Panel में जाकर अपनी बैंक डिटेल्स (Account Number, IFSC, UPI ID, PAN, Aadhaar) सेव करता है। Earning सेक्शन से वह अपना Referral Link / Code कॉपी करके दोस्तों के साथ शेयर कर सकता है। जब कोई उसके लिंक से पैकेज खरीदता है और एडमिन अप्रूव करता है, तो कमीशन उसके वॉलेट में जुड़ता है, जिसे वह "Withdraw" बटन से अपने बैंक या UPI में मंगाने की रिक्वेस्ट डाल सकता है।
+
+11. Support (सहायता प्राप्त करना):
+किसी भी समस्या के लिए यूजर वेबसाइट के फुटर (Footer) में दिए गए WhatsApp, Telegram, Instagram, या Email बटन पर क्लिक करके या About पेज के Contact फॉर्म से सीधे सपोर्ट टीम से संपर्क कर सकता है।
+
+
+============================================================
+3. USER DASHBOARD ANALYSIS
+============================================================
+
+3.1 Complete Dashboard Overview (/dashboard — Overview.tsx) [VERIFIED]
+- Route & Component: `/dashboard` -> `src/pages/dashboard/Overview.tsx`
+- Purpose: Provides an authenticated student with an instant summary of their active package tier, earnings metrics, unlocked courses, quick navigation shortcuts, and recent lesson completion activity.
+- Data Sources Verified: Fetches `/api/dashboard-overview/:userId`, `/api/packages`, and `/api/courses`.
+- What the User Sees & Interacts With:
+  1. Welcome Hero Banner (Indigo gradient `from-indigo-600 to-indigo-800`):
+     - Active Package Badge: Displays `Active Package: [Package Name]` (e.g., Starter, Silver, Gold, Diamond, Master, Elite) or `"No Active Package"` if none is active yet.
+     - Greeting: `"Welcome back, [First Name]!"` and subtext `"Continue your learning journey and track your progress across all courses."`
+     - Action Buttons:
+       * `"Explore Courses"` -> Navigates to `/dashboard/courses`.
+       * `"Upgrade Plan"` -> Navigates to `/dashboard/packages` (rendered when additional packages exist).
+  2. 4 Financial & Learning Stat Cards:
+     - `Total Earnings`: Displays lifetime referral earnings in `₹` (`totalEarned.toLocaleString('en-IN')`).
+     - `Today's Earning`: Displays earnings credited today (`₹`).
+     - `Last 7 Days Earning`: Displays earnings credited in the last 7 days (`₹`).
+     - `Enrolled Courses`: Displays count of unlocked courses (`enrolledCoursesCount`).
+  3. Continue Learning Section:
+     - Header with `"View All"` link -> `/dashboard/courses`.
+     - Displays up to 4 unlocked courses in a 2-column grid (`CourseCard` showing thumbnail, `"Course"` badge, title, instructor, duration, and `"Start Learning"` link -> `/dashboard/course/:courseId`).
+     - If no courses are unlocked yet, displays an empty state with `"Explore Packages"` button -> `/dashboard/packages`.
+  4. Quick Actions Panel:
+     - `"My Certificates"` card -> Navigates to `/dashboard/certificate`.
+     - `"Refer & Earn"` card -> Navigates to `/dashboard/earning`.
+     - `"Referral Program"` dark navy callout card (`bg-slate-900`) with `"Go to Earnings"` button -> `/dashboard/earning`.
+  5. Recent Activity Feed:
+     - Lists the last 5 completed lessons from `user_progress` (`"Completed Lesson: [Lesson Title]"` with date and `"Done"` badge), or `"No recent activity yet"`.
+
+3.2 Profile (/dashboard/profile — Profile.tsx) [VERIFIED]
+- Route & Component: `/dashboard/profile` -> `src/pages/dashboard/Profile.tsx`
+- Purpose: Displays the student's digital identity card, personal details, sponsor/referral details, skills, and social links, and allows instant profile photo uploading/cropping.
+- What the User Sees & Interacts With:
+  1. Cover Header & Avatar Upload:
+     - Indigo-to-purple gradient cover banner (`from-indigo-600 via-indigo-700 to-purple-800`).
+     - Profile Picture frame (`w-32 h-32 md:w-40 md:h-40`) with a floating Camera button.
+     - Clicking the Camera button opens file selection -> opens `ImageCropperModal` (1:1 square crop) -> uploads cropped image via `POST /api/upload` -> updates `profile_pic` via `POST /api/update-profile`.
+  2. Identity & Action Header:
+     - Displays `Full Name`, `"Verified Student"` badge, Role badge (`user` / `admin`), `"Joined [Year]"` badge, user biography, and an `"Edit Profile"` button -> `/dashboard/settings`.
+  3. Personal Info Card:
+     - Displays `Full Name`, `Email Address`, `Phone Number`, `State`, `Gender`, and `Date of Birth`.
+  4. Account & Referral Card:
+     - `TSW ID`: Unique student ID (`tsw_id`, e.g., `TSWXXXXXX`) with one-click Copy button.
+     - `Sponsor Name`: Name of the referrer who invited the user (or `"None"`).
+     - `Sponsor ID`: Referrer's TSW ID or referral code.
+     - `Active Package`: Badge showing the user's highest active package name.
+     - `Your Referral Code`: User's own `referral_code` with one-click Copy button.
+  5. Skills & Expertise Card:
+     - Renders skill tags from the user's profile (or `"Add Skills"` link -> `/dashboard/settings`).
+  6. Social Presence Card:
+     - External links to the user's saved `Instagram`, `Twitter`, and `LinkedIn` profiles (or `"Connect Socials"` link -> `/dashboard/settings`).
+
+3.3 My Packages (/dashboard/packages — MyPackages.tsx) [VERIFIED]
+- Route & Component: `/dashboard/packages` -> `src/pages/dashboard/MyPackages.tsx`
+- Purpose: Displays the user's active unlocked packages, pending package orders, and available package upgrades.
+- What the User Sees & Interacts With:
+  1. Active Packages Summary Banner:
+     - Shows all packages currently unlocked for the user (including lower-tier packages unlocked automatically via `getUnlockedPackageIds`).
+     - If no package is active, displays `"No Active Package — Select a package below to start your learning journey"`.
+  2. Package Cards Grid (`md:grid-cols-2 lg:grid-cols-3`):
+     - Each card displays Package Thumbnail, Package Name, Status Badge (`Active`, `Included`, or `Upgrade`), Description, Price (`₹`), and the list of included courses (`Courses Included`).
+     - Dynamic Action Button per card:
+       * If `isUnlocked` (Active/Included): Shows `"Access Courses"` -> Navigates to `/dashboard/courses`.
+       * If `isPending` (Order submitted, awaiting admin verification): Shows disabled `"Pending Approval"` button with clock icon.
+       * If locked/available to buy: Shows `"Upgrade Now"` (if user already has a lower package) or `"Buy Package"` -> Opens `CustomCheckoutModal` directly inside the dashboard.
+
+3.4 Courses (/dashboard/courses — Courses.tsx) [VERIFIED]
+- Route & Component: `/dashboard/courses` -> `src/pages/dashboard/Courses.tsx`
+- Purpose: Separates all platform courses into `Available Courses` (unlocked by the student's active package tier) and `Locked Courses` (requiring package purchase/upgrade).
+- What the User Sees & Interacts With:
+  1. Header & Search Bar:
+     - Title `"Courses"` and search input (`"Search courses or instructors..."`) that filters courses in real time.
+  2. Available Courses Section:
+     - Displays unlocked courses with an emerald checkmark icon and count badge.
+     - Each course card shows thumbnail, `"Course"` badge, rating (`4.8`), title, instructor, duration (`10h+`), and `"Start Learning"` button -> `/dashboard/course/:courseId`.
+  3. Locked Courses Section:
+     - Displays locked courses with a darkened thumbnail overlay, center `Lock` icon, and `"Locked"` badge.
+     - Shows `"Included in:"` tags listing which packages unlock that course.
+     - `"Upgrade Package"` button -> Navigates to `/dashboard/packages`.
+
+3.5 Course Player (/dashboard/course/:courseId — CoursePlayer.tsx) [VERIFIED]
+- Route & Component: `/dashboard/course/:courseId` -> `src/pages/dashboard/CoursePlayer.tsx`
+- Purpose: Interactive video classroom for watching course lessons, navigating modules, tracking completion percentage, and unlocking the course certificate.
+- What the User Sees & Interacts With:
+  1. Top Bar:
+     - `"Back to Courses"` button -> `/dashboard/courses`.
+     - Course Title & Instructor name.
+     - Overall Progress Card showing percentage (`0%` to `100%`) and visual progress bar.
+  2. Video Player Container (`aspect-video bg-slate-900`):
+     - Automatically embeds YouTube URLs (`youtube.com/embed/...`), HTML5 `<video>` streams, or external iframe video players.
+     - Displays a `"Playing: [Lesson Title]"` badge in the top-left corner.
+  3. Lesson Controls Bar:
+     - Displays `"Module X of Y"`, duration, and Lesson Title.
+     - `"Mark Complete"` / `"Completed"` button: Calls `POST /api/user-progress` (`user_id`, `course_id`, `lesson_id`, `completed: !isDone`) to toggle completion state in real time.
+     - `"Certificate"` button: Appears in emerald green once all lessons reach 100% completion -> Navigates to `/dashboard/certificate`.
+  4. About This Lesson Card:
+     - Shows lesson description and a 4-point `"Key Takeaways"` checklist.
+  5. Course Modules Playlist Sidebar:
+     - Lists all modules in `order_index` sequence with duration, active playing state (`bg-indigo-600 text-white`), completed green checkmark (`CheckCircle2`), or lock icon if not enrolled.
+     - When `calculateProgress() === 100`, renders a celebratory indigo card (`"Course Completed! Congratulations!"`) with a `"Get Certificate"` button -> `/dashboard/certificate`.
+
+3.6 Earning / Referral (/dashboard/earning — Earning.tsx) [VERIFIED]
+- Route & Component: `/dashboard/earning` -> `src/pages/dashboard/Earning.tsx`
+- Purpose: Complete affiliate, referral, wallet, payout, and leaderboard management center.
+- Eligibility Check Verified: Checks `hasPurchasedPackage`. Users without an active purchased package see a warning toast (`"Purchase a package first to start referring and earning!"` or `"Purchase a package first to withdraw funds!"`) if they attempt to copy/share links, generate codes, or withdraw.
+- What the User Sees & Interacts With:
+  1. Top Header & Actions:
+     - Displays user's `Referral ID` (`referral_code`) with a Copy button.
+     - `"Withdraw"` button (enabled when `walletBalance >= 500` and `hasPurchasedPackage` is true).
+  2. 6 Financial Cards:
+     - `All Time Earning` (`₹`)
+     - `Today's Earning` (`₹`)
+     - `Last 7 Days Earning` (`₹`)
+     - `Last 30 Days Earning` (`₹`)
+     - `Wallet Balance` (`₹` — labeled `"Available to withdraw"`)
+     - `Total Withdrawn` (`₹` — labeled `"Paid out"`)
+  3. 4 Interactive Sub-Tabs:
+     - Tab 1: `Overview`
+       * `Earning Breakdown`: Progress bars comparing `Direct Referral Commission` vs `Passive / Bonus Income`, plus `Team Size` (Total Referrals) and `Active Referrals` counters.
+       * `Quick Share` Card: Displays referral link (`https://<origin>/register?ref=<CODE>`), Copy button, `"Share on WhatsApp"` button, and `"Generate New Code"` button (allows creating up to 5 custom alphanumeric referral codes via `POST /api/referral-codes`).
+       * `Recent Commissions`: Shows the 5 most recent referral records and commission amounts.
+     - Tab 2: `My Referrals`
+       * Full table with columns: `User` (Name & Email), `Package`, `Joined Date`, `Status` (`active` / `pending`), and `Commission` (`₹`).
+     - Tab 3: `Payouts`
+       * Full table of withdrawal requests with columns: `Request ID`, `Date`, `Amount` (`₹`), `Method` (`Bank Transfer` / `UPI`), `Details` (Bank A/C or UPI ID), and `Status` (`paid`, `approved`, `pending`, `rejected`).
+     - Tab 4: `Leaderboard`
+       * Displays top 3 earner podium cards (`#1 Gold`, `#2 Silver`, `#3 Bronze`) and a ranked list of top platform earners fetched from `/api/leaderboard`.
+  4. Withdraw Funds Modal:
+     - Opens when clicking `"Withdraw"`.
+     - Shows `Available Balance` (`₹`).
+     - Input for `Amount to Withdraw (₹)` (minimum `₹500`, maximum `walletBalance`).
+     - Payment Method selector: `Bank Transfer` (`Bank Name`, `Account Number`, `IFSC Code` — auto-populated from saved KYC if present) or `UPI Transfer` (`UPI ID`).
+     - `"Submit Request"` button -> Calls `POST /api/payouts`.
+
+3.7 Certificate (/dashboard/certificate — Certificate.tsx & CertificateGenerator.tsx) [VERIFIED]
+- Route & Component: `/dashboard/certificate` -> `src/pages/dashboard/Certificate.tsx` & `src/components/dashboard/CertificateGenerator.tsx`
+- Purpose: Generates official, personalized Certificates of Completion for unlocked courses and exports them as PDF or PNG files.
+- What the User Sees & Interacts With:
+  1. Earned Certificates Grid:
+     - Shows a card for each unlocked course with an `"Earned"` badge, course title, `"Completed"` status, and a `"View & Download"` button that scrolls smoothly to the Certificate Generator.
+  2. Interactive Certificate Generator (`#certificate-generator-section`):
+     - Course Selector Dropdown: Allows choosing which unlocked course appears on the certificate.
+     - Live Certificate Canvas (`800px x 565px`, responsive scaled preview on mobile/tablet):
+       * Deep Navy (`#0A0E27`) background with double Gold (`#D4AF37`) ornamental border and corner accents.
+       * Header: Graduation Cap icon in gold box + `"THE SMART WORTH"` + `"CERTIFICATE OF COMPLETION"`.
+       * Body: `"This is proudly presented to"` -> `[Student Full Name]` (in bold italic serif) -> `"for successfully completing the comprehensive course on"` -> `[Course Title]` (in gold uppercase).
+       * Footer: `Date` (formatted issue date), `Founder & CEO` signature (`"The Smart Worth"`), Center Gold Ribbon Seal (`"100% Verified"`), `Course Director` signature (`"Academic Head"`), and unique `Certificate ID` (`TSW-XXXX-XXXX` deterministically generated from user ID + course ID).
+     - Export Buttons:
+       * `"Download PDF"` -> Renders high-res PNG (`pixelRatio: 3`) via `html-to-image` and saves as an A4 Landscape PDF (`The_Smart_Worth_Certificate_[Name].pdf`) via `jsPDF`.
+       * `"Download Image"` -> Downloads high-res PNG (`The_Smart_Worth_Certificate_[Name].png`).
+
+3.8 KYC Panel (/dashboard/kyc — KYCPanel.tsx) [VERIFIED]
+- Route & Component: `/dashboard/kyc` -> `src/pages/dashboard/KYCPanel.tsx`
+- Purpose: Allows students to submit and save their identity, bank account, and card details for verification and payout processing.
+- Data Endpoints Verified: `GET /api/kyc/:userId` and `POST /api/kyc`.
+- What the User Sees & Interacts With:
+  1. Identity Verification Section:
+     - `PAN Card Number` (auto-uppercased)
+     - `Aadhaar Card Number`
+  2. Bank Account Details Section:
+     - `Account Holder Name`
+     - `Bank Name`
+     - `Account Number`
+     - `IFSC Code` (auto-uppercased)
+     - `UPI ID (Optional)`
+  3. ATM Card Details Section:
+     - `Card Number (16 Digits)`
+     - `Card Holder Name`
+     - `Expiry Date (MM/YY)`
+     - `CVV` (3 numeric digits)
+  4. Submit Button:
+     - `"Save KYC Details"` (`BrutalistButton`) -> Saves record via `POST /api/kyc` and displays `"Details saved successfully!"`.
+
+3.9 Settings (/dashboard/settings — Settings.tsx) [VERIFIED]
+- Route & Component: `/dashboard/settings` -> `src/pages/dashboard/Settings.tsx`
+- Purpose: Manages profile photo, personal/social profile fields, and account password.
+- What the User Sees & Interacts With:
+  1. 3 Settings Tabs (`Profile`, `Security`, `Notifications`):
+  2. Profile Tab:
+     - Avatar with Camera button -> Opens `ImageCropperModal` -> Immediately updates profile photo.
+     - Personal Fields: `Full Name`, `Email Address` (read-only), `Phone Number`, `Date of Birth`, `Gender` (`Male`, `Female`, `Other`), `State`.
+     - Social Profile Fields: `Biography`, `Skills (comma-separated)`, `Instagram Profile`, `Twitter URL`, `LinkedIn URL`.
+     - Admin Approval Workflow for Regular Users:
+       * Displays notice: `"To change your profile information, you must send a request to the admin. Only the profile picture can be updated directly."`
+       * Clicking `"Request Update"` opens the `"Confirm Update Request"` modal summarizing the requested changes -> Clicking `"Send Request"` submits `POST /api/profile-update-request`.
+       * While a request is pending, fields are disabled and a banner displays `"Update Request Pending — Please wait for admin approval before making new changes."`
+  3. Security Tab:
+     - `"Change Password"` form with `New Password` (min 6 chars) and `Confirm New Password`.
+     - `"Update Password"` button -> Calls `POST /api/sync-password` and shows `"Password updated successfully!"`.
+  4. Notifications Tab:
+     - Tab button is present in the header bar; switching to it displays the container with the bottom Save/Request button (no separate notification toggle checkboxes are rendered).
+
+3.10 Notifications (NotificationsDropdown.tsx) [VERIFIED]
+- Location & Component: Dashboard Top Header Bar -> `src/components/dashboard/NotificationsDropdown.tsx`
+- Purpose: Displays real-time/polled user notifications (`GET /api/notifications/:userId` every 30 seconds).
+- What the User Sees & Interacts With:
+  - Bell icon with red unread count badge.
+  - Clicking opens a dropdown panel (`w-80 md:w-96`) listing notifications with status icons (`info`, `success`, `warning`, `error`), title, message, timestamp, `"Mark all read"` action (`POST /api/notifications/read-all`), individual read button, and delete button (`DELETE /api/notifications/:id`).
+
+3.11 Mobile Dashboard Navigation (Dashboard.tsx) [VERIFIED]
+- Component: `src/pages/Dashboard.tsx`
+- What the User Sees & Interacts With on Mobile (`< 1024px / lg:hidden`):
+  1. Sticky Top Bar (`h-16`):
+     - Left: Hamburger button (`Menu`) that opens the full slide-in Dark Navy Sidebar Drawer (`Overview`, `Profile`, `My Packages`, `Courses`, `Earning`, `Certificate`, `KYC Panel`, `Settings`, `Logout`).
+     - Center-Left: Brand Logo + `"The Smart Worth"`.
+     - Right: `NotificationsDropdown` bell + User Avatar chip (tapping opens `/dashboard/profile`).
+  2. Fixed Bottom Navigation Bar (`fixed bottom-0 left-0 right-0 z-40 h-16`):
+     - Provides 5 quick-access tabs with active indicator pill:
+       1. `Home` (`/dashboard`)
+       2. `Packages` (`/dashboard/packages`)
+       3. `Courses` (`/dashboard/courses`)
+       4. `Earning` (`/dashboard/earning`)
+       5. `Profile` (`/dashboard/profile`)
+
+3.12 Logout / Session Behavior [VERIFIED]
+- Implementation: `AuthContext` (`src/context/AuthContext.tsx`), `Navbar.tsx`, and `Dashboard.tsx`.
+- How It Works:
+  - User session is persisted in `localStorage` (`tsw_user_session` / Supabase session token) and verified against `/api/profile/:userId`.
+  - Clicking `"Logout"` (in Navbar, Desktop Dashboard Sidebar, or Mobile Drawer) invokes `signOut()`, clears local session storage and cached dashboard state, and redirects the user to `/login`.
+  - If an unauthenticated user attempts to visit any `/dashboard/*` route, `Dashboard.tsx` automatically redirects them to `/login`.
+
+
+============================================================
+4. COMPLETE COURSE / LEARNING SYSTEM [VERIFIED]
+============================================================
+
+1. Course Catalog & Categories:
+   - Publicly accessible at `/courses` (`PublicCourses.tsx`) and `/course/:id` (`CourseDetails.tsx`); accessible inside the dashboard at `/dashboard/courses` (`Courses.tsx`).
+   - Courses are fetched from `GET /api/courses`. No fake/mock courses are hardcoded in `server.ts` (`DEFAULT_COURSES = []`).
+2. Course-to-Package Mapping:
+   - Courses belong to Packages via the `package_courses` relation (`package_id` <-> `course_id`).
+   - On `/course/:id`, clicking `"Enroll Now"` takes an unauthenticated user to `/package/:id` (the package that includes that course) or `/packages`, and takes a logged-in user to `/dashboard/courses`.
+3. Tiered Unlocking Logic (`src/lib/packageUtils.ts`):
+   - Packages are ranked by tier/price (`Silver/Starter` Tier 1 -> `Gold` Tier 2 -> `Diamond/Platinum` Tier 3 -> `Master` Tier 4 -> `Elite/Pro/Crown` Tier 5).
+   - Owning a higher-tier package automatically unlocks all courses mapped to that package AND all lower-tier packages (`getUnlockedPackageIds`).
+4. Video Classroom & Lesson Progression (`CoursePlayer.tsx`):
+   - Supports YouTube links (auto-converted to clean embed URLs), direct MP4/video streams, and external embed URLs.
+   - Displays a structured module playlist on the right (`Module 1`, `Module 2`, etc.).
+   - If a course has no rows in `course_lessons`, it automatically creates a fallback `"Module 1: Introduction to [Course Title]"` using the main course video URL.
+5. Progress Tracking (`POST /api/user-progress`):
+   - Students click `"Mark Complete"` on each module after watching.
+   - The progress bar updates dynamically (`completedLessons.length / lessons.length * 100`).
+6. Completion & Certification:
+   - Reaching 100% module completion reveals the emerald `"Certificate"` button in the player bar and a `"Course Completed! Congratulations!"` card in the sidebar linking to `/dashboard/certificate`.
+
+
+============================================================
+5. COMPLETE PACKAGE / PRODUCT SYSTEM [VERIFIED]
+============================================================
+
+1. Dynamic Database-Driven Product Architecture:
+   - Packages are fetched from `GET /api/packages` (`usePackages.ts`).
+   - Backend `DEFAULT_PACKAGES = []` ensures only real packages configured by the Admin in the database are displayed.
+2. Verified Tier Structure (`packageUtils.ts`):
+   - Tier 1: `Starter` / `Basic` / `Silver` / `Lite`
+   - Tier 2: `Gold` / `Standard` / `Intermediate`
+   - Tier 3: `Diamond` / `Platinum` / `Advanced`
+   - Tier 4: `Master` / `Supreme`
+   - Tier 5: `Elite` / `Pro` / `Ultimate` / `Prime` / `Crown` / `Legend`
+3. What Every Package Displays:
+   - Package Name, Thumbnail, Description, Price in `₹` (`INR`), number of included courses, and standard platform inclusions:
+     * `Full Lifetime Access`
+     * `Access on mobile and desktop`
+     * `Certificate of completion`
+4. Purchase & Upgrade Paths:
+   - Path A (New Visitor on `/register`): Fills personal details -> Selects package card -> Clicks `"Proceed to Payment"` -> Completes UPI QR & 12-digit UTR checkout.
+   - Path B (New Visitor on `/packages` or `/package/:id`): Clicks `"Buy Now"` -> Opens `CustomCheckoutModal` -> Enters personal details (Step 1) -> Scans QR / pays via UPI (Step 2) -> Submits 12-digit UTR (Step 3).
+   - Path C (Logged-in Student on `/dashboard/packages`): Clicks `"Upgrade Now"` or `"Buy Package"` -> Opens `CustomCheckoutModal` (skips Step 1 directly to Step 2 QR payment) -> Submits 12-digit UTR.
+5. Post-Purchase Activation:
+   - Submitting UTR creates an order (`status: 'pending'`) and enrollment (`status: 'pending_approval'`).
+   - Once the Admin approves the order in the Admin Panel, the user's `package_id` and enrollment become `active`, unlocking all courses in that tier and lower tiers.
+
+
+============================================================
+6. COMPLETE PAYMENT WORKFLOW [VERIFIED]
+============================================================
+
+Implemented across `src/components/CustomCheckoutModal.tsx`, `src/pages/Register.tsx`, `src/pages/dashboard/MyPackages.tsx`, and `server.ts`:
+
+1. Step 1 — Customer & Account Details (if not logged in):
+   - Inputs: `Full Name`, `Email Address`, `Mobile Number` (validated for 10 digits), `Password` (min 6 chars), and `Referral Code (Optional)` with `"Apply"` button (`GET /api/validate-referral/:code`).
+   - Clicking `"Continue to Payment"` creates/authenticates the user via `POST /api/signup`.
+2. Step 2 — Dynamic UPI QR & UPI ID Payment:
+   - Fetches merchant UPI configuration from `GET /api/payment-settings` (`upi_id`, `upi_name`, `qr_code_url`, `payment_instructions`).
+   - Displays the exact payable amount (`₹`) and package name.
+   - Generates a scannable UPI QR Code (`upi://pay?pa=<upi_id>&pn=<upi_name>&am=<amount>&cu=INR`) or renders the admin's custom QR image, with a `"Download QR"` button.
+   - Displays the UPI ID with a one-click `"Copy"` button and mobile UPI app buttons (`GPay / PhonePe / Paytm`).
+   - User completes the transfer in their UPI app and clicks `"I Have Paid — Enter UTR"`.
+3. Step 3 — 12-Digit UTR Manual Verification:
+   - User enters the **12-digit numeric UTR / Reference Number** (`/^\d{12}$/`).
+   - Clicking `"Verify & Complete Order"` submits `POST /api/orders` with `user_id`, `package_id`, `amount`, `utr_number`, `payment_method: 'upi_qr'`, `status: 'pending'`, and `referral_code`.
+   - Backend checks for duplicate UTR numbers and rejects reuse (`"This UTR number has already been submitted"`).
+4. Step 4 — Confirmation & Pending Verification State:
+   - Triggers celebratory confetti (`canvas-confetti`).
+   - Shows `"Payment Submitted! Pending Verification"` with Package Name, Amount Paid, and UTR Number.
+   - Button `"Go to Dashboard"` navigates to `/dashboard`, where the package displays `"Pending Approval"` until verified by the Admin.
+5. Refund Rules (`/refund`):
+   - Strict **2-hour refund window** from purchase completion for duplicate payments or unresolvable technical errors, void if any course material was downloaded, a certificate was generated, or referral commission was earned.
+
+
+============================================================
+7. COMPLETE REFERRAL / LEARN & EARN SYSTEM [VERIFIED]
+============================================================
+
+1. Access & Eligibility Requirement:
+   - Located at `/dashboard/earning` (`Earning.tsx`).
+   - Strictly requires an active purchased package (`hasPurchasedPackage === true`) to copy/share referral links, generate custom referral codes, or request withdrawals.
+2. Referral Code & Link Mechanics:
+   - Every user is assigned a unique `referral_code` (e.g., `REFXXXXX`) and `tsw_id` (`TSWXXXXXX`) at signup.
+   - Users can generate up to **5 custom referral codes** (`POST /api/referral-codes`).
+   - Referral Link format: `https://<domain>/register?ref=<REFERRAL_CODE>`.
+   - Opening `/register?ref=CODE` automatically populates and validates the referral code on the registration page.
+3. Sharing Options:
+   - One-click **Copy Link** and **Copy Code** buttons.
+   - Direct **Share on WhatsApp** button (`https://wa.me/?text=...`).
+4. Tracking, Commissions & Leaderboard:
+   - Tracks `All Time Earning`, `Today's Earning`, `Last 7 Days Earning`, `Last 30 Days Earning`, `Wallet Balance`, and `Total Withdrawn`.
+   - Breaks down earnings into `Direct Referral Commission` and `Passive / Bonus Income`.
+   - Provides a `My Referrals` table (showing referred users, package, date, `Active`/`Pending` status, and commission) and a `Leaderboard` tab showing top earners.
+   - Note: Specific commission amounts are dynamically controlled by the Admin per package in the backend database and credited upon Admin approval of the referred user's order. No guaranteed income claims are made.
+5. Withdrawal / Payout System:
+   - Minimum withdrawal threshold: **₹500** (`walletBalance >= 500`).
+   - Supported payout methods: **Bank Transfer** (`Bank Name`, `Account Number`, `IFSC Code`) and **UPI Transfer** (`UPI ID`).
+   - Submitting a payout (`POST /api/payouts`) deducts the amount from `wallet_balance` and logs the request in the `Payouts` table (`pending` -> `approved` / `paid` / `rejected`).
+
+
+============================================================
+8. BOOK / EBOOK VERIFICATION [VERIFIED ABSENT]
+============================================================
+
+- Status: **NOT PRESENT ON WEBSITE (VERIFIED ABSENT)**.
+- Codebase verification of `App.tsx`, `Navbar.tsx`, `Dashboard.tsx`, `src/pages/*`, and `server.ts` confirms there are **no Books or eBooks**, no book thumbnails, and no PDF/eBook reader on the platform. Do NOT mention Books or eBooks in the explainer video.
+
+
+============================================================
+9. COMPLETE SUPPORT SYSTEM [VERIFIED]
+============================================================
+
+1. Global Footer 3D Support Buttons (`Footer.tsx`):
+   - **Instagram**: `https://www.instagram.com/thesmartworth?igsh=b2t3b214bWQ5b2c=`
+   - **WhatsApp**: `https://wa.me/919471619703` (`+91 9471619703`)
+   - **Telegram**: `https://t.me/TheSmartWorth`
+   - **Email**: `mailto:helplinesmartworth@gmail.com`
+2. Contact Page & Message Form (`/about#contact` — `About.tsx`):
+   - Displays `support@thesmartworth.com`, `+91 98765 43210` (`Mon-Fri from 10am to 6pm`), and `New Delhi, India`.
+   - Interactive `"Send a Message"` form (`Your Name`, `Email Address`, `Subject`, `Message` -> `"Send Message"` button) with instant confirmation screen.
+3. Admin Profile Update Request (`/dashboard/settings` — `Settings.tsx`):
+   - Students needing to update locked personal details (`Full Name`, `Phone`, `DOB`, `Gender`, `State`) submit an official request via `"Request Update"` (`POST /api/profile-update-request`), which is reviewed by the Admin within 24–48 hours.
+4. FAQ Accordion (`Home.tsx`):
+   - 5 built-in FAQs on the homepage covering platform overview, course access after payment, Hindi language availability, certificates, and contacting support.
+5. Support Ticket System:
+   - **VERIFIED ABSENT**: There is no ticket number queue or ticket creation page.
+
+
+============================================================
+10. MOBILE EXPERIENCE [VERIFIED]
+============================================================
+
+- **Public Mobile Navigation**: Sticky top header (`h-16`) with right-side Hamburger button opening a smooth slide-in drawer (`max-w-[300px]`) with collapsible `Packages` list, navigation links, and bottom `Login` / `Create Account` buttons.
+- **Mobile Dashboard Navigation**: Dual navigation pattern:
+  1. Top sticky header with Hamburger button (opens full 8-section dark navy sidebar drawer), Notifications bell dropdown, and user avatar.
+  2. Fixed 5-tab Bottom Navigation Bar (`Home`, `Packages`, `Courses`, `Earning`, `Profile`).
+- **Mobile Checkout & UPI Flow**: Scrollable modal (`max-h-[90vh]`) with QR download and one-tap `"GPay / PhonePe / Paytm"` UPI deep-link launcher.
+- **Mobile Certificate Preview**: Responsive CSS scaling (`scale-[0.38] sm:scale-[0.6]`) so the full 800x565 landscape certificate previews cleanly on small screens, while exporting at full 3x high resolution.
+- **Mobile Footer**: Renders the 4 white 3D social/contact pill buttons in a balanced 2x2 grid (`grid-cols-2 gap-3.5`).
+
+
+============================================================
+11. DESKTOP EXPERIENCE [VERIFIED]
+============================================================
+
+- **Wide SaaS Layout**: `max-w-7xl` centered containers on public pages with a `h-20` sticky top navbar and hover dropdown for `Packages`.
+- **Desktop Dashboard**: Fixed `w-72` dark navy (`#0A0E27`) left sidebar with spacious `p-10` main workspace (`#F8FAFC`), 3- and 4-column card grids, and full-width tables for `My Referrals` and `Payouts`.
+- **Desktop Course Player**: 3-column split layout (`lg:grid-cols-3`) placing the 16:9 video player and lesson controls across 2 columns on the left and the scrollable module playlist in 1 column on the right.
+- **Desktop Footer**: Displays all 4 white 3D social/contact pill buttons in a single centered horizontal row above the copyright bar.
+
+
+============================================================
+12. USER EXPERIENCE ANALYSIS [VERIFIED]
+============================================================
+
+- **Immediately Clear to New Users**:
+  * The headline `"Learn Big. Earn Smart. Grow Fast with The Smart Worth"`, the `"Watch How The Smart Worth Works"` video container on the homepage, and the 4-step visual guide.
+  * The 3-step checkout modal (`Details -> Scan QR / UPI -> Enter 12-Digit UTR`).
+- **Potential Points of Confusion That the Video Must Clarify**:
+  1. **UTR Verification & Pending State**: After submitting the 12-digit UTR, the package shows `"Pending Verification"` / `"Pending Approval"` until approved by the Admin. The video should reassure users that this is normal and explain how to enter an accurate 12-digit UTR.
+  2. **Active Package Required for Referral & Withdrawal**: Users cannot copy referral links or withdraw earnings until they have an active purchased package, and minimum withdrawal is **₹500**.
+  3. **Profile Edits Require Admin Approval**: Profile pictures update immediately, but changing Name, Phone, DOB, Gender, or State in `Settings` sends an update request to the Admin (`24-48 hours`).
+  4. **Strict 2-Hour Refund Window**: Refund requests are only valid within 2 hours of purchase for duplicate payment or unresolvable technical issues.
+
+
+============================================================
+13. VISUAL / BRAND ANALYSIS [VERIFIED]
+============================================================
+
+- **Brand Name**: `The Smart Worth`
+- **Core Colors**:
+  * Primary Royal Blue: `#0061FF`
+  * Deep Navy Authority Background: `#0A0E27`
+  * Dashboard Indigo Accent: `#4F46E5` / `#615DFA`
+  * Cyan Glow Accent: `#00F0FF` & `#60A5FA`
+  * Certificate Gold: `#D4AF37`
+  * Page Surface: `#FFFFFF` & `#F8FAFF` / `#F8FAFC`
+- **Typography**:
+  * Display Headings: `Poppins` / `Montserrat` (Extra Bold / Black `900`)
+  * Body Copy: `Inter` / `Plus Jakarta Sans`
+- **Signature 3D Brutalist Buttons (`BrutalistButton.tsx`)**:
+  * Pill-shaped (`rounded-full`), `#0061FF` background, `2px solid #0A0E27` border, hard `0 4px 0 #0A0E27` bottom shadow, press-down click animation, and diagonal gloss shine.
+- **Cards & Containers**:
+  * Rounded corners (`rounded-[2rem]` to `rounded-[2.5rem]`), soft slate borders, glassmorphic dark navy panels for the homepage video showcase and dashboard banners.
+
+
+============================================================
+14. COMPLETE BUTTON & ACTION MAP [VERIFIED]
+============================================================
+
+Button | Page / Location | Action | Destination / Endpoint | User Result
+----------------------------------------------------------------------------------------------------
+Login | Public Navbar | Click | /login | Opens Sign In page
+Sign Up | Public Navbar | Click | /register | Opens Registration & Package selection page
+Get Started / Enroll Now | Home (/) | Click | /register (or /dashboard) | Starts registration flow
+Explore Courses / View All Courses | Home (/) | Click | /courses | Opens public courses page
+Play Video | Home Video Showcase | Click | Video Player Container | Plays platform walkthrough video
+Explore Our Story | Home About Section | Click | /about | Opens About Us & Contact page
+Buy Now | Package Card (/, /packages) | Click | /package/:id | Opens Package Details page
+Buy Now for ₹[Price] | Package Details (/package/:id) | Click | CustomCheckoutModal | Opens UPI QR checkout modal
+Enroll Now | Course Card (/courses) | Click | /course/:id | Opens Course Details & curriculum
+Enroll Now | Course Details (/course/:id) | Click | /package/:id or /dashboard/courses | Directs user to package enrollment
+Proceed to Payment | Register (/register) | Submit | CustomCheckoutModal | Validates form & opens UPI QR payment modal
+Download QR / Copy UPI ID | Checkout Modal (Step 2) | Click | QR Download / Clipboard | Saves QR image or copies merchant UPI ID
+I Have Paid — Enter UTR | Checkout Modal (Step 2) | Click | Checkout Modal Step 3 | Opens 12-digit UTR input screen
+Verify & Complete Order | Checkout Modal (Step 3) | Submit | POST /api/orders | Submits 12-digit UTR & creates pending order
+Sign In | Login (/login) | Submit | POST /api/login -> /dashboard | Authenticates user into Dashboard
+Forgot password? | Login (/login) | Click | /forgot-password | Opens password reset request page
+Explore Courses / Upgrade Plan | Dashboard Overview (/dashboard) | Click | /dashboard/courses or /dashboard/packages | Navigates to courses or packages
+Edit Profile | Dashboard Profile (/dashboard/profile) | Click | /dashboard/settings | Opens Settings page
+Camera Icon (Avatar) | Profile & Settings | Click | ImageCropperModal -> POST /api/upload | Crops & updates profile picture immediately
+Upgrade Now / Buy Package | My Packages (/dashboard/packages) | Click | CustomCheckoutModal | Opens UPI QR checkout for package upgrade
+Start Learning | Dashboard Overview & Courses | Click | /dashboard/course/:courseId | Opens CoursePlayer video classroom
+Mark Complete | Course Player (/dashboard/course/:id) | Click | POST /api/user-progress | Marks module completed & updates progress %
+Get Certificate / View & Download | Course Player & Certificate Page | Click | /dashboard/certificate | Loads Certificate Generator for selected course
+Download PDF / Download Image | Certificate (/dashboard/certificate) | Click | jsPDF / html-to-image | Downloads A4 Landscape PDF or high-res PNG certificate
+Copy Referral ID / Link | Dashboard Earning (/dashboard/earning) | Click | Clipboard | Copies referral code or registration link
+Share on WhatsApp | Dashboard Earning (/dashboard/earning) | Click | https://wa.me/?text=... | Shares referral link on WhatsApp
+Generate New Code | Dashboard Earning (/dashboard/earning) | Click | POST /api/referral-codes | Creates custom referral code (up to 5)
+Withdraw | Dashboard Earning (/dashboard/earning) | Click | Withdraw Modal -> POST /api/payouts | Submits withdrawal request (min ₹500) via Bank/UPI
+Save KYC Details | KYC Panel (/dashboard/kyc) | Submit | POST /api/kyc | Saves PAN, Aadhaar, Bank, UPI & Card details
+Request Update | Settings (/dashboard/settings) | Click | POST /api/profile-update-request | Submits profile change request for Admin approval
+Update Password | Settings -> Security Tab | Submit | POST /api/sync-password | Updates user password
+Instagram / WhatsApp / Telegram / Email | Global Footer | Click | External Links | Opens official social/support channels
+Logout | Navbar / Dashboard Sidebar | Click | signOut() -> /login | Clears session and logs user out
+
+
+============================================================
+15. COMPLETE WEBSITE FLOW DIAGRAM [VERIFIED]
+============================================================
+
+VISITOR LANDS ON WEBSITE (/)
+   |
+   +--> Watches "How The Smart Worth Works" Video Showcase
+   +--> Explores Courses (/courses -> /course/:id) & Packages (/packages -> /package/:id)
+   |
+   v
+REGISTRATION & PACKAGE SELECTION (/register)
+   |-- Enters Full Name, Email, 10-Digit Mobile, Password, State
+   |-- Enters Optional Referral Code (Validated via /api/validate-referral/:code)
+   |-- Selects Desired Learning Package & Agrees to Terms
+   |
+   v
+UPI QR & UTR CHECKOUT (CustomCheckoutModal)
+   |-- Step 1: Account Verified / Created
+   |-- Step 2: Scans Dynamic UPI QR Code or Copies UPI ID & Pays in UPI App
+   |-- Step 3: Enters 12-Digit Numeric UTR Number & Submits Order (POST /api/orders)
+   |
+   v
+ORDER CREATED (Status: Pending Verification)
+   |
+   v
+ADMIN VERIFIES UTR & APPROVES ORDER -> PACKAGE & TIER COURSES UNLOCKED
+   |
+   v
+AUTHENTICATED STUDENT DASHBOARD (/dashboard)
+   |
+   +--> [1. OVERVIEW] (/dashboard)
+   |       Views Active Package, 4 Earning/Course Stats, Continue Learning & Recent Activity
+   |
+   +--> [2. PROFILE] (/dashboard/profile)
+   |       Uploads/Crops Avatar, Copies TSW ID & Referral Code, Views Sponsor & Personal Info
+   |
+   +--> [3. MY PACKAGES] (/dashboard/packages)
+   |       Checks Active/Included Packages, Pending Approvals, or Upgrades to Higher Tier
+   |
+   +--> [4. COURSES & PLAYER] (/dashboard/courses -> /dashboard/course/:courseId)
+   |       Watches Video Modules -> Clicks "Mark Complete" -> Reaches 100% Progress
+   |
+   +--> [5. CERTIFICATE] (/dashboard/certificate)
+   |       Selects Unlocked Course -> Previews Navy & Gold Certificate -> Downloads PDF or PNG
+   |
+   +--> [6. KYC PANEL] (/dashboard/kyc)
+   |       Submits PAN, Aadhaar, Bank Account, IFSC, UPI ID & Card Details -> Clicks "Save KYC Details"
+   |
+   +--> [7. EARNING / LEARN & EARN] (/dashboard/earning)
+   |       Copies Referral Link / Shares on WhatsApp -> Generates Custom Code (up to 5) ->
+   |       Tracks Direct/Passive Commissions, Referrals & Leaderboard -> Requests Withdrawal (Min ₹500)
+   |
+   +--> [8. SETTINGS & SUPPORT] (/dashboard/settings, Footer, /about#contact, /refund)
+           Changes Password, Requests Admin Profile Update, or Contacts WhatsApp/Telegram/Email Support
+
+
+============================================================
+16. VIDEO CONTENT REQUIREMENTS (10-MINUTE HINDI EXPLAINER STRUCTURE)
+============================================================
+
+1. Chapter 1 (0:00 - 1:00) — Welcome & Homepage Tour:
+   - Show `/` Hero section, `"Learn Big. Earn Smart. Grow Fast with The Smart Worth"`, 4 metric cards (`15K+ Students`, `50+ Courses`, `100+ Trainers`, `4.9 Rating`), and the `"Watch How The Smart Worth Works"` video player section.
+2. Chapter 2 (1:00 - 2:15) — Courses & Tiered Packages Explained:
+   - Show `/courses`, `/course/:id` (curriculum & lock icons), `/packages`, and `/package/:id` (`Courses in this Package`). Explain how higher-tier packages automatically unlock lower-tier courses with lifetime access.
+3. Chapter 3 (2:15 - 3:30) — New User Registration & Referral Code:
+   - Show `/register`. Demonstrate filling Name, Email, 10-digit Mobile, Password, State, applying a valid Referral Code, selecting a Package card, checking Terms, and clicking `"Proceed to Payment"`.
+4. Chapter 4 (3:30 - 4:45) — UPI QR Payment & 12-Digit UTR Submission:
+   - Show `CustomCheckoutModal`. Demonstrate scanning the UPI QR code / copying the UPI ID, clicking `"I Have Paid — Enter UTR"`, entering the exact **12-digit numeric UTR**, clicking `"Verify & Complete Order"`, and explaining the `"Pending Verification"` admin approval stage.
+5. Chapter 5 (4:45 - 5:45) — Login, Dashboard Overview & Student Profile:
+   - Show `/login` -> `/dashboard` (`Overview.tsx`) and `/dashboard/profile` (`Profile.tsx`). Highlight the Welcome Banner, 4 stat cards, unique `TSW ID`, Sponsor info, and 1:1 profile photo cropper.
+6. Chapter 6 (5:45 - 6:45) — Watching Courses & Completing Modules:
+   - Show `/dashboard/courses` (`Available` vs `Locked` courses) and `/dashboard/course/:courseId` (`CoursePlayer.tsx`). Demonstrate watching a video module, switching lessons in the right sidebar, and clicking `"Mark Complete"` until progress hits `100%`.
+7. Chapter 7 (6:45 - 7:30) — Live Certificate Generation & PDF/PNG Download:
+   - Show `/dashboard/certificate`. Demonstrate selecting a course, previewing the Navy & Gold verified certificate with `TSW-XXXX-XXXX` ID, and clicking `"Download PDF"` and `"Download Image"`.
+8. Chapter 8 (7:30 - 8:30) — Learn & Earn: Referrals, Leaderboard & ₹500+ Withdrawal:
+   - Show `/dashboard/earning`. Demonstrate the 6 wallet/earning cards, copying the Referral Link, sharing on WhatsApp, generating a custom referral code, viewing `My Referrals`, `Payouts`, and `Leaderboard` tabs, and opening the `"Withdraw"` modal (`₹500` minimum via Bank Transfer or UPI).
+9. Chapter 9 (8:30 - 9:15) — KYC Verification & Profile/Security Settings:
+   - Show `/dashboard/kyc` (saving PAN, Aadhaar, Bank A/C, IFSC, UPI ID) and `/dashboard/settings` (changing password in `Security` tab and submitting an Admin `"Request Update"` for profile details).
+10. Chapter 10 (9:15 - 10:00) — Official Support Channels & 2-Hour Refund Policy:
+    - Show the 4 Footer 3D buttons (`Instagram`, `WhatsApp`, `Telegram`, `Email`), the `/about#contact` form, and the `/refund` page highlighting the **strict 2-hour refund window**.
+
+
+============================================================
+17. 3D AI VIDEO REQUIREMENTS
+============================================================
+
+1. Presenter Character:
+   - Professional 3D cartoon Indian male presenter wearing smart casual attire in brand colors (white shirt/t-shirt with Royal Blue `#0061FF` jacket/blazer), speaking clear and friendly Hindi.
+2. Environment & Lighting:
+   - Sleek 3D EdTech studio with Deep Navy (`#0A0E27`) depth, Royal Blue (`#0061FF`) and Cyan (`#00F0FF`) accent lighting, and clean floating glass UI screens.
+3. Device Contexts:
+   - **3D Laptop Screen**: Used for demonstrating desktop views (Homepage Hero, Package Cards, 3-column Course Player, Certificate Generator, Earning & Referral Tables).
+   - **3D Smartphone Screen**: Used for demonstrating mobile-specific actions (scanning the UPI QR code, entering the 12-digit UTR, sharing referral links on WhatsApp, and using the 5-tab Mobile Dashboard bottom bar).
+4. Floating 3D UI Callouts:
+   - Elevate the pill-shaped 3D `BrutalistButton` CTAs, the UPI QR + 12-digit UTR input card, the Navy & Gold Certificate, and the 6 Earning metric cards with subtle 3D parallax and click-ripple highlights.
+5. Camera & Transitions:
+   - Smooth dolly-in from the 3D presenter to full-screen UI capture during step-by-step walkthroughs, using clean chapter title cards between sections.
+
+
+============================================================
+18. FINAL VERIFIED WEBSITE SUMMARY
+============================================================
+
+- A. What The Smart Worth Is: A digital skill-learning and EdTech web platform offering tiered course packages, video lessons, verified completion certificates, and a referral/affiliate earning system.
+- B. Who Can Use It: Students, learners, and aspiring professionals across India looking to learn practical digital skills in Hindi/English.
+- C. Main Website Features: Public Course & Package catalogs, Registration with Referral Code validation, Dynamic UPI QR + 12-digit UTR checkout, Student Dashboard, Video Course Player with progress tracking, PDF/PNG Certificate Generator, Referral/Wallet/Leaderboard system, KYC panel, and Admin-approved profile settings.
+- D. Main User Journey: Homepage -> Explore Packages/Courses -> Register & Select Package -> Scan UPI QR & Submit 12-Digit UTR -> Admin Approves Order -> Access Student Dashboard.
+- E. Main Learning Journey: Dashboard Courses -> Start Learning -> Watch Video Lessons -> Click "Mark Complete" -> Reach 100% Progress -> Download Verified PDF/PNG Certificate.
+- F. Payment Journey: Select Package -> Open Checkout Modal -> Pay via UPI QR / UPI ID -> Submit 12-Digit Numeric UTR -> Pending Admin Verification -> Active Package Unlocked.
+- G. Referral / Earning Journey (Verified): Requires active purchased package -> Complete KYC -> Share Referral Link (`?ref=CODE`) or custom code -> Earn commission when referred user's order is approved by Admin -> Withdraw via Bank Transfer or UPI once Wallet Balance reaches `₹500+`.
+- H. Support Journey: Click Footer 3D buttons (`WhatsApp: +91 9471619703`, `Telegram: @TheSmartWorth`, `Instagram: @thesmartworth`, `Email: helplinesmartworth@gmail.com`) or submit the `/about#contact` message form.
+- I. Most Important Pages: `/` (Home), `/packages`, `/package/:id`, `/courses`, `/course/:id`, `/register`, `/login`, `/dashboard`, `/dashboard/course/:courseId`, `/dashboard/certificate`, `/dashboard/earning`, `/dashboard/kyc`, `/dashboard/settings`, `/refund`.
+- J. Most Important Actions: Registering with a package, submitting a 12-digit UTR after UPI payment, marking course modules complete, downloading the certificate, saving KYC details, sharing the referral link, and requesting a payout (`₹500+`).
+- K. Features That MUST Appear in the 10-Minute Video: All 10 chapters listed in Section 16.
+- L. Features That Must NOT Be Mentioned (Verified Absent / Unverified):
+  * Books / eBooks / PDF book readers (Verified Absent)
+  * Support Ticket numbers / Ticket queue system (Verified Absent)
+  * Hardcoded fake package prices or guaranteed earning promises (Prohibited & Not Present)
+
+
+VIDEO DATA READY
+COMPLETE ANALYSIS FINISHED
+
+============================================================
+COMPACT CHECKLIST OF EVERY VERIFIED FEATURE FOR THE 10-MINUTE VIDEO
+============================================================
+
+[ ] 1. Homepage Hero ("Learn Big. Earn Smart. Grow Fast with The Smart Worth") & 4 Stats Cards (15K+ Students, 50+ Courses, 100+ Trainers, 4.9 Rating)
+[ ] 2. Homepage Video Showcase Section ("Watch How The Smart Worth Works")
+[ ] 3. Public Courses Catalog (/courses with search bar) & Course Details (/course/:id curriculum & lock icons)
+[ ] 4. Public Packages Catalog (/packages) & Package Details (/package/:id showing included courses & tier hierarchy unlocking)
+[ ] 5. Registration Form (/register: Full Name, Email, 10-digit Mobile, Password, State, Referral Code validation, Package selection)
+[ ] 6. Custom Checkout Modal Step 2: Dynamic UPI QR Code scan, Download QR, Copy UPI ID, and GPay/PhonePe/Paytm buttons
+[ ] 7. Custom Checkout Modal Step 3: Entering the mandatory 12-digit numeric UTR number & "Pending Verification" order status
+[ ] 8. Login Page (/login) & Forgot Password (/forgot-password) flow
+[ ] 9. Student Dashboard Overview (/dashboard: Active Package badge, 4 Earning/Course stat cards, Continue Learning, Recent Activity)
+[ ] 10. Mobile Dashboard Experience (Sticky Top Header + 5-Tab Bottom Navigation Bar + Slide-out Sidebar Drawer)
+[ ] 11. User Profile (/dashboard/profile: 1:1 Avatar Cropper upload, unique TSW ID, Sponsor Name/ID, Referral Code, Bio, Skills, Social links)
+[ ] 12. My Packages (/dashboard/packages: Active/Included status, Pending Approval status, and "Upgrade Now" modal flow)
+[ ] 13. Dashboard Courses (/dashboard/courses: Available unlocked courses vs Locked courses with "Upgrade Package" prompt)
+[ ] 14. Video Course Player (/dashboard/course/:courseId: 16:9 video player, module playlist, "Mark Complete" button, 0% to 100% progress bar)
+[ ] 15. Certificate Generator (/dashboard/certificate: Course selector, live Navy & Gold certificate preview with TSW-XXXX-XXXX ID, "Download PDF" & "Download Image" buttons)
+[ ] 16. Learn & Earn Dashboard (/dashboard/earning: Active package eligibility rule, 6 financial cards, Referral Link copy, WhatsApp share, up to 5 custom referral codes)
+[ ] 17. Referrals, Payouts & Leaderboard Tabs (My Referrals table, Payouts status table, Top Earners Leaderboard podium)
+[ ] 18. Withdrawal Modal (Minimum ₹500 withdrawal rule, Bank Transfer vs UPI Transfer payout request submission)
+[ ] 19. KYC Panel (/dashboard/kyc: Saving PAN, Aadhaar, Bank Account Number, IFSC Code, UPI ID, and Card details)
+[ ] 20. Account Settings (/dashboard/settings: Changing password in Security tab & submitting Admin "Request Update" for profile fields)
+[ ] 21. Notifications Dropdown (Top bar bell icon with unread badge, mark as read, and delete)
+[ ] 22. Global Footer 4 Social/Support 3D Buttons (Instagram, WhatsApp +91 9471619703, Telegram, Email helplinesmartworth@gmail.com) & Contact Form (/about#contact)
+[ ] 23. Strict 2-Hour Refund Policy (/refund: 2-hour window rule & eligibility conditions)

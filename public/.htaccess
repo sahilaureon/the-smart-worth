@@ -1,0 +1,20 @@
+# PREVENT SENSITIVE FILE ACCESS
+<Files .env>
+Order allow,deny
+Deny from all
+</Files>
+
+<FilesMatch "^\.">
+Order allow,deny
+Deny from all
+</FilesMatch>
+
+# SPA ROUTING (IF HOSTED ON APACHE)
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>
