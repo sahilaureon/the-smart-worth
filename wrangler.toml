@@ -1,11 +1,26 @@
-name = "tsw-api-worker"
+name = "thesmartworth-api"
 main = "worker/index.ts"
 compatibility_date = "2024-04-03"
+compatibility_flags = ["nodejs_compat"]
 
 [vars]
 FRONTEND_URL = "https://thesmartworth.site"
 
-# Production environment variables to be set via: 
+# Optional: You can configure the custom domain route directly in Cloudflare Dashboard (Workers & Pages -> Custom Domains -> api.thesmartworth.site)
+# or uncomment the route below once the domain zone is active:
+# routes = [
+#   { pattern = "api.thesmartworth.site/*", zone_name = "thesmartworth.site" }
+# ]
+
+# SENSITIVE PRODUCTION SECRETS
+# Set these encrypted secrets using Cloudflare CLI or Cloudflare Dashboard:
+# wrangler secret put SUPABASE_URL
 # wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+# wrangler secret put RAZORPAY_KEY_ID
 # wrangler secret put RAZORPAY_KEY_SECRET
+# wrangler secret put RAZORPAY_WEBHOOK_SECRET
+# wrangler secret put CLOUDINARY_CLOUD_NAME
+# wrangler secret put CLOUDINARY_API_KEY
 # wrangler secret put CLOUDINARY_API_SECRET
+# wrangler secret put JWT_SECRET
+# wrangler secret put GEMINI_API_KEY

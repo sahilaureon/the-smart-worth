@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Award,
   Download,
@@ -13,13 +14,23 @@ import {
   Mail,
   Package,
   X,
-  Check
+  Check,
+  ExternalLink,
+  FileText,
+  ShieldCheck
 } from 'lucide-react';
 import { fetchApi } from '../../lib/api';
 import { useAuth } from '../../App';
 import confetti from 'canvas-confetti';
 import { cn } from '../../lib/utils';
 import { storageService } from '../../services/storageService';
+import { CertificateTemplate, CertificateUserData } from '../../types/certificate';
+import { DEFAULT_MASTER_TEMPLATE } from '../../lib/certificateDefaults';
+import {
+  renderCertificateToCanvas,
+  formatCertificateDate
+} from '../../lib/certificateEngine';
+import { jsPDF } from 'jspdf';
 
 const CertificateGenerator = () => {
   const { user } = useAuth();
@@ -273,6 +284,49 @@ const CertificateGenerator = () => {
     }
   };
 
+  const downloadCertificatePdf = async (imgUrl: string, title: string, certId?: string) => {
+    if (!imgUrl) return;
+    const trackingId = `pdf-${certId || title}`;
+    setDownloadingId(trackingId);
+
+    const safeFileName = `TSW_Certificate_${String(title || 'Course')
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]+/g, '_')}.pdf`;
+
+    try {
+      let finalImg = imgUrl;
+      if (!imgUrl.startsWith('data:')) {
+        const response = await fetch(imgUrl, { mode: 'cors' });
+        const blob = await response.blob();
+        finalImg = await new Promise((res) => {
+          const reader = new FileReader();
+          reader.onloadend = () => res(reader.result as string);
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4'
+      });
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      pdf.addImage(finalImg, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(safeFileName);
+
+      setDownloadedId(trackingId);
+      setTimeout(() => {
+        setDownloadedId((prev) => (prev === trackingId ? null : prev));
+      }, 2500);
+    } catch (err) {
+      console.warn('PDF export fallback:', err);
+      downloadCertificate(imgUrl, title, certId);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   const handleSelectCourse = (course: any) => {
     setSelectedCourse(course);
     setShowDropdown(false);
@@ -313,228 +367,44 @@ const CertificateGenerator = () => {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Fetch template if exists
-      const settingsRes = await fetchApi('/site-settings');
-      if (!settingsRes.ok) throw new Error('Failed to fetch settings');
-      const settingsData = await settingsRes.json();
-
-      const templateUrl = settingsData.certificate_template;
-      const positionsRaw = settingsData.certificate_positions || '{}';
-      let positions: any = {};
+      // Fetch active template if customized
+      let activeTemplate: CertificateTemplate = DEFAULT_MASTER_TEMPLATE;
       try {
-        positions = typeof positionsRaw === 'string' ? JSON.parse(positionsRaw) : positionsRaw;
-      } catch (e) {
-        console.error('Error parsing positions:', e);
-      }
-
-      const customPos = templateUrl ? positions[templateUrl] : null;
-      const certId = `TSW-CERT-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-
-      // Set canvas size (A4 Landscape aspect ratio roughly)
-      canvas.width = 1200;
-      canvas.height = 850;
-
-      let usedTemplate = false;
-      if (templateUrl) {
-        try {
-          const img = new Image();
-          if (!templateUrl.startsWith('data:') && !templateUrl.startsWith('blob:')) {
-            img.crossOrigin = 'anonymous';
-          }
-          await new Promise((resolve, reject) => {
-            img.onload = resolve;
-            img.onerror = () => reject(new Error('Template image failed to load'));
-            img.src =
-              templateUrl.startsWith('data:') || templateUrl.startsWith('blob:')
-                ? templateUrl
-                : `${templateUrl}${templateUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
-          });
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          usedTemplate = true;
-
-          // Draw User DP (Profile Picture 1:1) if template is used
-          const dpSrc = profile.avatar_url || profile.profile_pic;
-          if (dpSrc) {
-            try {
-              const avatarImg = new Image();
-              if (!dpSrc.startsWith('data:') && !dpSrc.startsWith('blob:')) {
-                avatarImg.crossOrigin = 'anonymous';
-              }
-              await new Promise((resolve, reject) => {
-                avatarImg.onload = resolve;
-                avatarImg.onerror = reject;
-                avatarImg.src = dpSrc;
-              });
-
-              const dpX = Number(customPos?.dp?.x ?? 138);
-              const dpY = Number(customPos?.dp?.y ?? 182);
-              const dpSize = Number(customPos?.dp?.size ?? 120);
-              const dpShape = customPos?.dp?.shape || 'circle';
-              const halfSize = dpSize / 2;
-
-              // 1:1 Center-Crop (object-fit: cover) calculation
-              const imgW = avatarImg.naturalWidth || avatarImg.width || dpSize;
-              const imgH = avatarImg.naturalHeight || avatarImg.height || dpSize;
-              const minDim = Math.min(imgW, imgH);
-              const sx = (imgW - minDim) / 2;
-              const sy = (imgH - minDim) / 2;
-
-              ctx.save();
-              ctx.beginPath();
-              if (dpShape === 'square') {
-                const r = Math.min(12, halfSize * 0.15);
-                const x0 = dpX - halfSize;
-                const y0 = dpY - halfSize;
-                ctx.moveTo(x0 + r, y0);
-                ctx.arcTo(x0 + dpSize, y0, x0 + dpSize, y0 + dpSize, r);
-                ctx.arcTo(x0 + dpSize, y0 + dpSize, x0, y0 + dpSize, r);
-                ctx.arcTo(x0, y0 + dpSize, x0, y0, r);
-                ctx.arcTo(x0, y0, x0 + dpSize, y0, r);
-              } else {
-                ctx.arc(dpX, dpY, halfSize, 0, Math.PI * 2);
-              }
-              ctx.closePath();
-              ctx.clip();
-              ctx.drawImage(
-                avatarImg,
-                sx,
-                sy,
-                minDim,
-                minDim,
-                dpX - halfSize,
-                dpY - halfSize,
-                dpSize,
-                dpSize
-              );
-              ctx.restore();
-            } catch (e) {
-              console.warn('Could not draw user avatar on certificate:', e);
+        const settingsRes = await fetchApi('/site-settings');
+        if (settingsRes.ok) {
+          const settingsData = await settingsRes.json();
+          if (settingsData.certificate_custom_template) {
+            const parsed = JSON.parse(settingsData.certificate_custom_template);
+            if (parsed && parsed.elements) {
+              activeTemplate = parsed;
             }
           }
-        } catch (tplErr) {
-          console.warn('Custom template could not be loaded, using default certificate design:', tplErr);
-          usedTemplate = false;
         }
+      } catch (e) {
+        console.warn('Using default master certificate template:', e);
       }
 
-      if (!usedTemplate) {
-        const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-        gradient.addColorStop(0, '#0A0E27');
-        gradient.addColorStop(1, '#1A1E37');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const certId = crypto.randomUUID ? crypto.randomUUID() : `cert-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const certSerial = `TSW-CERT-${certId.substring(0, 8).toUpperCase()}`;
 
-        ctx.strokeStyle = '#D4AF37';
-        ctx.lineWidth = 15;
-        ctx.strokeRect(40, 40, canvas.width - 80, canvas.height - 80);
+      const certUserData: CertificateUserData = {
+        id: certId,
+        cert_id: certSerial,
+        full_name: resolvedFullName,
+        course_name: selectedCourse.title,
+        package_name: packageName,
+        email: user.email || profile?.email || '',
+        completion_date: formatCertificateDate(new Date()),
+        tsw_id: profile?.tsw_id || ('TSW-' + String(profile?.id || user.id).replace(/[^a-zA-Z0-9]/g, '').slice(0, 7).toUpperCase()),
+        profile_image: profile?.avatar_url || profile?.profile_pic || '',
+        issue_date: formatCertificateDate(new Date()),
+        verification_status: 'VERIFIED & AUTHENTIC'
+      };
 
-        ctx.strokeStyle = '#615DFA';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(60, 60, canvas.width - 120, canvas.height - 120);
+      // Dynamically render the complete certificate onto canvas
+      await renderCertificateToCanvas(canvas, activeTemplate, certUserData, { scale: 1 });
 
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'bold 30px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('THE SMART WORTH', canvas.width / 2, 120);
-
-        ctx.fillStyle = '#D4AF37';
-        ctx.font = 'bold 80px sans-serif';
-        ctx.fillText('CERTIFICATE', canvas.width / 2, 220);
-
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'italic 30px sans-serif';
-        ctx.fillText('OF COMPLETION', canvas.width / 2, 275);
-      }
-
-      ctx.fillStyle = usedTemplate ? '#555555' : '#A0AEC0';
-      ctx.font = '22px sans-serif';
-      ctx.textAlign = 'center';
-      if (!usedTemplate) {
-        ctx.fillText('THIS CERTIFICATE IS PROUDLY PRESENTED TO', canvas.width / 2, 355);
-      }
-
-      ctx.fillStyle = '#D4AF37';
-      ctx.font = usedTemplate ? 'bold 64px Cinzel, serif' : 'bold 72px serif';
-      ctx.shadowBlur = usedTemplate ? 0 : 4;
-      ctx.shadowColor = 'rgba(0,0,0,0.3)';
-      const nameY = (usedTemplate ? customPos?.name?.y : null) || 440;
-      const nameX = (usedTemplate ? customPos?.name?.x : null) || canvas.width / 2;
-
-      const nameCandidates = [
-        profile?.full_name,
-        user?.user_metadata?.full_name,
-        profile?.username,
-        user?.email?.split('@')[0]
-      ].filter(Boolean);
-
-      const rawName =
-        nameCandidates.find((n) => (n as string).includes(' ')) || nameCandidates[0] || 'Student';
-      const displayName = String(rawName).toUpperCase();
-
-      ctx.fillText(displayName, nameX, nameY);
-      ctx.shadowBlur = 0;
-
-      if (!usedTemplate) {
-        ctx.strokeStyle = '#615DFA';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(canvas.width / 2 - 300, 465);
-        ctx.lineTo(canvas.width / 2 + 300, 465);
-        ctx.stroke();
-      }
-
-      ctx.fillStyle = usedTemplate ? '#555555' : '#A0AEC0';
-      ctx.font = '24px sans-serif';
-      if (!usedTemplate) {
-        ctx.fillText('FOR SUCCESSFULLY COMPLETING THE COURSE', canvas.width / 2, 525);
-      }
-
-      ctx.fillStyle = usedTemplate ? '#D4AF37' : '#FFFFFF';
-      ctx.font = usedTemplate ? 'bold 50px Cinzel, serif' : 'bold 44px sans-serif';
-      const courseY = (usedTemplate ? customPos?.course?.y : null) || (usedTemplate ? 585 : 580);
-      const courseX = (usedTemplate ? customPos?.course?.x : null) || canvas.width / 2;
-      ctx.fillText(selectedCourse.title.toUpperCase(), courseX, courseY);
-
-      if (!usedTemplate) {
-        ctx.fillStyle = '#4A5568';
-        ctx.font = 'bold 12px monospace';
-        ctx.textAlign = 'left';
-        ctx.fillText(`ID: ${certId}`, 60, 810);
-
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#718096';
-        ctx.font = '16px sans-serif';
-        ctx.fillText(
-          'FROM THE SMART WORTH ACADEMY WISH YOU ALL THE BEST FOR THE FUTURE',
-          canvas.width / 2,
-          640
-        );
-
-        ctx.fillStyle = '#E2E8F0';
-        ctx.font = '18px sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText('ISSUE DATE:', 150, 750);
-        ctx.fillText(
-          new Date().toLocaleDateString('en-IN', {
-            day: '2-digit',
-            month: 'long',
-            year: 'numeric'
-          }),
-          150,
-          780
-        );
-
-        ctx.textAlign = 'right';
-        ctx.font = 'italic 36px "Brush Script MT", cursive';
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillText('Sahil Aureon', canvas.width - 150, 745);
-
-        ctx.fillStyle = '#E2E8F0';
-        ctx.font = 'bold 14px sans-serif';
-        ctx.fillText('FOUNDER & CEO', canvas.width - 150, 775);
-      }
-
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      const dataUrl = canvas.toDataURL('image/png');
 
       let finalCertificateUrl = dataUrl;
       try {
@@ -552,8 +422,10 @@ const CertificateGenerator = () => {
       const saveRes = await fetchApi('/certificates', {
         method: 'POST',
         body: JSON.stringify({
+          id: certId,
+          certificate_id: certSerial,
           user_id: user.id,
-          user_name: profile.full_name || profile.username,
+          user_name: resolvedFullName,
           package_name: selectedCourse.title,
           certificate_url: finalCertificateUrl
         })
@@ -1028,7 +900,21 @@ const CertificateGenerator = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-end shrink-0">
+                    <div className="flex items-center gap-2 justify-end shrink-0 flex-wrap">
+                      {cert.id && (
+                        <Link
+                          to={`/verify/${cert.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-2 rounded-md bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-300 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
+                          title="Open dynamic verification & credential page"
+                        >
+                          <ShieldCheck size={14} className="text-emerald-600" />
+                          <span>Verify</span>
+                          <ExternalLink size={12} className="text-slate-400" />
+                        </Link>
+                      )}
+
                       <button
                         type="button"
                         onClick={() =>
@@ -1036,23 +922,43 @@ const CertificateGenerator = () => {
                         }
                         disabled={isDownloading}
                         className={cn(
-                          'w-full sm:w-auto px-4 py-2.5 rounded-md text-xs font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer disabled:opacity-60',
+                          'px-3.5 py-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-2xs cursor-pointer disabled:opacity-60',
                           isDownloaded
                             ? 'bg-emerald-600 text-white'
                             : 'bg-slate-900 hover:bg-slate-800 text-white'
                         )}
+                        title="Download high-resolution image"
                       >
                         {isDownloading ? (
-                          <Loader2 size={14} className="animate-spin" />
+                          <Loader2 size={13} className="animate-spin" />
                         ) : isDownloaded ? (
                           <>
-                            <Check size={14} />
-                            <span>Downloaded</span>
+                            <Check size={13} />
+                            <span>Saved</span>
                           </>
                         ) : (
                           <>
-                            <Download size={14} />
-                            <span>Download Certificate</span>
+                            <Download size={13} />
+                            <span>PNG</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          downloadCertificatePdf(cert.certificate_url, cert.package_name, trackKey)
+                        }
+                        disabled={downloadingId === `pdf-${trackKey}`}
+                        className="px-3.5 py-2 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-2xs cursor-pointer disabled:opacity-60"
+                        title="Download printable A4 landscape PDF"
+                      >
+                        {downloadingId === `pdf-${trackKey}` ? (
+                          <Loader2 size={13} className="animate-spin" />
+                        ) : (
+                          <>
+                            <FileText size={13} />
+                            <span>PDF</span>
                           </>
                         )}
                       </button>

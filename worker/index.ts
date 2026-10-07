@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { createClient } from '@supabase/supabase-js';
+import { generateEdgeReceiptPdfBytes } from '../supabase/functions/_shared/pdfGenerator';
 
 type Bindings = {
   SUPABASE_URL: string;
@@ -1168,10 +1169,332 @@ api.post('/referral-click', async (c) => {
   return c.json({ success: true });
 });
 
-// --- OTHER SPECIFICS ---
+// --- SITE SETTINGS ---
 api.get('/site-settings', async (c) => {
-  const { data } = await getSupabase(c.env).from('site_settings').select('*').single();
-  return c.json(data || {});
+  const settingsObj: Record<string, string> = {
+    site_title: 'The Smart Worth',
+    site_description: 'Discover skills that build your career with The Smart Worth.'
+  };
+  try {
+    const { data } = await getSupabase(c.env).from('site_settings').select('*');
+    if (data && Array.isArray(data)) {
+      data.forEach((row: any) => {
+        if (row.key) settingsObj[row.key] = row.value;
+      });
+    }
+  } catch {}
+  return c.json(settingsObj);
+});
+
+// --- E-BOOKS ---
+api.get('/ebooks', async (c) => {
+  const supabase = getSupabase(c.env);
+  const { data } = await supabase.from('site_settings').select('value').eq('key', 'ebooks_catalog').maybeSingle();
+  let ebooks: any[] = [];
+  if (data?.value) {
+    try {
+      ebooks = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+    } catch {}
+  }
+  return c.json(ebooks || []);
+});
+
+api.get('/ebooks/:id', async (c) => {
+  const id = c.req.param('id');
+  const supabase = getSupabase(c.env);
+  const { data } = await supabase.from('site_settings').select('value').eq('key', 'ebooks_catalog').maybeSingle();
+  let ebooks: any[] = [];
+  if (data?.value) {
+    try {
+      ebooks = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+    } catch {}
+  }
+  const item = (ebooks || []).find((eb: any) => String(eb.id) === String(id) || String(eb.slug) === String(id));
+  if (!item) return c.json({ error: 'E-book not found' }, 404);
+  return c.json(item);
+});
+
+// --- CERTIFICATES ---
+api.get('/certificates/:userId', async (c) => {
+  const user = c.get('user') || await verifyAuth(c);
+  const targetId = c.req.param('userId');
+  if (!user || (user.id !== targetId && user.role !== 'admin')) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+  const supabase = getSupabase(c.env);
+  const { data, error } = await supabase
+    .from('certificates')
+    .select('*')
+    .eq('user_id', targetId)
+    .order('created_at', { ascending: false });
+
+  if (error) return c.json([]);
+
+  const seen = new Set<string>();
+  const uniqueCerts = (data || []).filter((item: any) => {
+    const key = String(item.package_name || '').trim().toLowerCase();
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return c.json(uniqueCerts);
+});
+
+api.post('/certificates', async (c) => {
+  const user = c.get('user') || await verifyAuth(c);
+  const body = await c.req.json();
+  const targetUserId = body.user_id || user?.id;
+  if (!targetUserId) return c.json({ error: 'Missing user_id' }, 400);
+
+  const normalizedCourse = String(body.package_name || 'Course Completion').trim();
+  const normalizedKey = normalizedCourse.toLowerCase();
+  const supabase = getSupabase(c.env);
+
+  const { data: existingList } = await supabase
+    .from('certificates')
+    .select('*')
+    .eq('user_id', targetUserId);
+
+  const found = (existingList || []).find(
+    (item: any) => String(item.package_name || '').trim().toLowerCase() === normalizedKey
+  );
+
+  if (found) {
+    return c.json({
+      error: 'Is course ka certificate pehle se bana hua hai! Ek course ka certificate dobara nahi banega.',
+      alreadyExists: true,
+      certificate: found
+    }, 409);
+  }
+
+  const newCert = {
+    id: crypto.randomUUID(),
+    user_id: targetUserId,
+    user_name: body.user_name || user?.user_metadata?.full_name || 'Student',
+    package_name: normalizedCourse,
+    certificate_url: body.certificate_url || '',
+    created_at: new Date().toISOString()
+  };
+
+  const { data: inserted, error } = await supabase
+    .from('certificates')
+    .insert(newCert)
+    .select()
+    .maybeSingle();
+
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(inserted || newCert);
+});
+
+api.delete('/certificates/:id', async (c) => {
+  const user = c.get('user') || await verifyAuth(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const supabase = getSupabase(c.env);
+  const { error } = await supabase.from('certificates').delete().eq('id', c.req.param('id'));
+  return c.json({ success: !error });
+});
+
+api.get('/certificates/verify/:certId', async (c) => {
+  const certId = c.req.param('certId');
+  if (!certId) return c.json({ error: 'Certificate ID is required' }, 400);
+  const supabase = getSupabase(c.env);
+
+  let { data: cert } = await supabase
+    .from('certificates')
+    .select('*')
+    .eq('id', certId)
+    .maybeSingle();
+
+  if (!cert) {
+    const { data: allCerts } = await supabase.from('certificates').select('*').limit(100);
+    cert = (allCerts || []).find((item: any) =>
+      String(item.id).toLowerCase() === certId.toLowerCase() ||
+      certId.includes(String(item.id).slice(0, 8))
+    );
+  }
+
+  if (!cert) {
+    return c.json({
+      error: 'Certificate not found or verification ID invalid',
+      verified: false,
+      certId
+    }, 404);
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', cert.user_id)
+    .maybeSingle();
+
+  let userPkgName = profile?.package_name || '';
+  if (!userPkgName && profile?.package_id) {
+    const { data: pkg } = await supabase.from('packages').select('name').eq('id', profile.package_id).maybeSingle();
+    if (pkg?.name) userPkgName = pkg.name;
+  }
+
+  return c.json({
+    id: cert.id,
+    user_id: cert.user_id,
+    user_name: cert.user_name || profile?.full_name || 'Valued Learner',
+    course_name: cert.package_name || 'Skill Specialization Course',
+    package_name: userPkgName || 'The Smart Worth Learning Package',
+    email: profile?.email || '',
+    tsw_id: profile?.tsw_id || ('TSW-' + String(cert.user_id || 'MEMBER').replace(/[^a-zA-Z0-9]/g, '').slice(0, 7).toUpperCase()),
+    profile_image: profile?.avatar_url || profile?.profile_pic || '',
+    completion_date: cert.created_at,
+    certificate_url: cert.certificate_url,
+    created_at: cert.created_at,
+    verification_status: 'VERIFIED & AUTHENTIC',
+    verified: true,
+    platform: 'The Smart Worth (TSW) Official Verification Portal'
+  });
+});
+
+// --- PAYMENT HELP TICKETS & MANUAL UTR ---
+api.post('/payment-help-tickets', async (c) => {
+  const body = await c.req.json();
+  const supabase = getSupabase(c.env);
+  const ticket = {
+    id: crypto.randomUUID(),
+    user_id: body.user_id || body.userId || null,
+    user_email: body.email || body.user_email || '',
+    full_name: body.full_name || body.name || '',
+    mobile: body.mobile || body.phone || '',
+    package_id: body.package_id || body.packageId || '',
+    utr: body.utr || body.utr_number || '',
+    amount: body.amount || 0,
+    screenshot_url: body.screenshot_url || '',
+    status: 'pending',
+    created_at: new Date().toISOString()
+  };
+  const { error } = await supabase.from('payment_help_tickets').insert(ticket);
+  return c.json({ success: !error, ticket });
+});
+
+api.post('/payment/submit-utr', async (c) => {
+  const body = await c.req.json();
+  const supabase = getSupabase(c.env);
+  const ticket = {
+    id: crypto.randomUUID(),
+    user_id: body.user_id || null,
+    user_email: body.email || '',
+    full_name: body.full_name || '',
+    mobile: body.mobile || '',
+    package_id: body.package_id || '',
+    utr: body.utr || '',
+    amount: body.amount || 0,
+    screenshot_url: body.screenshot_url || '',
+    status: 'pending',
+    created_at: new Date().toISOString()
+  };
+  const { error } = await supabase.from('payment_help_tickets').insert(ticket);
+  return c.json({ success: !error, ticket });
+});
+
+api.post('/payment/raise-ticket', async (c) => {
+  const body = await c.req.json();
+  const supabase = getSupabase(c.env);
+  const { error } = await supabase.from('payment_help_tickets').insert({ ...body, status: 'pending', created_at: new Date().toISOString() });
+  return c.json({ success: !error });
+});
+
+api.get('/admin/payment-tickets', async (c) => {
+  const user = c.get('user') || await verifyAuth(c);
+  if (!await verifyAdmin(c, user)) return c.json({ error: 'Forbidden' }, 403);
+  const { data } = await getSupabase(c.env).from('payment_help_tickets').select('*').order('created_at', { ascending: false });
+  return c.json(data || []);
+});
+
+api.post('/admin/payment-tickets/:id/approve', async (c) => {
+  const user = c.get('user') || await verifyAuth(c);
+  if (!await verifyAdmin(c, user)) return c.json({ error: 'Forbidden' }, 403);
+  const id = c.req.param('id');
+  const supabase = getSupabase(c.env);
+  const { data: ticket } = await supabase.from('payment_help_tickets').select('*').eq('id', id).maybeSingle();
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
+  if (ticket.user_id && ticket.package_id) {
+    await Promise.all([
+      supabase.from('profiles').update({ package_id: ticket.package_id }).eq('id', ticket.user_id),
+      supabase.from('enrollments').upsert({ user_id: ticket.user_id, package_id: ticket.package_id, status: 'active' })
+    ]);
+  }
+  await supabase.from('payment_help_tickets').update({ status: 'approved', updated_at: new Date().toISOString() }).eq('id', id);
+  return c.json({ success: true });
+});
+
+api.post('/admin/payment-tickets/:id/reject', async (c) => {
+  const user = c.get('user') || await verifyAuth(c);
+  if (!await verifyAdmin(c, user)) return c.json({ error: 'Forbidden' }, 403);
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => ({}));
+  await getSupabase(c.env).from('payment_help_tickets').update({ status: 'rejected', rejection_reason: body.reason || '', updated_at: new Date().toISOString() }).eq('id', id);
+  return c.json({ success: true });
+});
+
+api.delete('/admin/payment-tickets/:id', async (c) => {
+  const user = c.get('user') || await verifyAuth(c);
+  if (!await verifyAdmin(c, user)) return c.json({ error: 'Forbidden' }, 403);
+  const id = c.req.param('id');
+  await getSupabase(c.env).from('payment_help_tickets').delete().eq('id', id);
+  return c.json({ success: true });
+});
+
+// --- RECEIPT & INVOICE PDF ---
+api.get('/payment/receipt-pdf/:orderId', async (c) => {
+  const orderId = c.req.param('orderId');
+  const supabase = getSupabase(c.env);
+  const { data: order } = await supabase.from('razorpay_orders').select('*').eq('razorpay_order_id', orderId).maybeSingle();
+  const { data: profile } = order?.user_id ? await supabase.from('profiles').select('*').eq('id', order.user_id).maybeSingle() : { data: null };
+  const { data: pkg } = order?.package_id ? await supabase.from('packages').select('*').eq('id', order.package_id).maybeSingle() : { data: null };
+
+  const pdfBytes = generateEdgeReceiptPdfBytes({
+    invoiceNumber: `TSW-INV-${orderId.slice(-6).toUpperCase()}`,
+    orderId,
+    paymentId: order?.razorpay_payment_id || 'VERIFIED-UPI',
+    dateStr: order?.created_at ? new Date(order.created_at).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN'),
+    status: 'PAID',
+    packageName: pkg?.name || 'Skill Learning Package',
+    originalPrice: Number(order?.amount || 599),
+    discountAmount: 0,
+    finalAmount: Number(order?.amount || 599),
+    paymentMethod: 'Razorpay UPI / Instant Pay',
+    customerName: profile?.full_name || order?.user_email || 'Student',
+    username: profile?.username || 'member',
+    customerEmail: profile?.email || order?.user_email || ''
+  });
+
+  return new Response(pdfBytes, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="TSW_Receipt_${orderId}.pdf"`
+    }
+  });
+});
+
+api.get('/payment/invoice/:orderId', async (c) => {
+  const orderId = c.req.param('orderId');
+  const supabase = getSupabase(c.env);
+  const { data: order } = await supabase.from('razorpay_orders').select('*').eq('razorpay_order_id', orderId).maybeSingle();
+  if (!order) return c.json({ error: 'Order not found' }, 404);
+  return c.json(order);
+});
+
+// --- AUTH ME ---
+api.get('/auth/me', async (c) => {
+  const user = await verifyAuth(c);
+  if (!user) return c.json({ user: null });
+  const { data: profile } = await getSupabase(c.env).from('profiles').select('*').eq('id', user.id).maybeSingle();
+  return c.json({ user, profile });
+});
+
+api.delete('/user-uploads/:id', async (c) => {
+  const user = c.get('user') || await verifyAuth(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const { error } = await getSupabase(c.env).from('user_uploads').delete().eq('id', c.req.param('id'));
+  return c.json({ success: !error });
 });
 
 api.post('/sync-password', async (c) => {
@@ -1215,16 +1538,58 @@ api.post('/profile-requests', async (c) => {
   return c.json({ success: !error });
 });
 
+// --- ADMIN ACTION (FULL CRUD & QUERY SUPPORT) ---
 api.post('/admin-action', async (c) => {
   const user = c.get('user') || await verifyAuth(c);
   if (!await verifyAdmin(c, user)) return c.json({ error: 'Forbidden' }, 403);
-  const { action, table, data, id } = await c.req.json();
+  const body = await c.req.json();
+  const { action, table, data, payload, query, id, onConflict } = body;
+  const effectivePayload = payload ?? data;
   const supabase = getSupabase(c.env);
-  let res;
-  if (action === 'insert') res = await supabase.from(table).insert(data).select();
-  else if (action === 'update') res = await supabase.from(table).update(data).eq('id', id).select();
-  else if (action === 'delete') res = await supabase.from(table).delete().eq('id', id).select();
-  return c.json(res?.data || { error: res?.error?.message });
+
+  if (action === 'query') {
+    let q: any = supabase.from(table).select(query?.select || '*');
+    if (query?.eq && query.eq.column && query.eq.value !== undefined) {
+      q = q.eq(query.eq.column, query.eq.value);
+    }
+    if (query?.order && query.order.column) {
+      q = q.order(query.order.column, { ascending: query.order.ascending ?? false });
+    }
+    if (query?.limit) {
+      q = q.limit(Number(query.limit));
+    }
+    const { data: rows, error } = await q;
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(rows || []);
+  }
+
+  if (action === 'upsert') {
+    const conflictCol = onConflict || (table === 'site_settings' ? 'key' : 'id');
+    const { data: result, error } = await supabase.from(table).upsert(effectivePayload, { onConflict: conflictCol }).select();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(result || { success: true });
+  }
+
+  if (action === 'insert') {
+    const { data: result, error } = await supabase.from(table).insert(effectivePayload).select();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(result || { success: true });
+  }
+
+  if (action === 'update') {
+    const targetId = id || effectivePayload?.id;
+    const { data: result, error } = await supabase.from(table).update(effectivePayload).eq('id', targetId).select();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(result || { success: true });
+  }
+
+  if (action === 'delete') {
+    const targetId = id || effectivePayload?.id;
+    const { error } = await supabase.from(table).delete().eq('id', targetId);
+    return c.json({ success: !error });
+  }
+
+  return c.json({ error: 'Unknown action' }, 400);
 });
 
 // AI CHAT

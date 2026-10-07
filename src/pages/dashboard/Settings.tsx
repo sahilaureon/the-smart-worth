@@ -290,8 +290,8 @@ const UserSettings = () => {
       return;
     }
 
-    if (passwordData.newPassword.length < 6) {
-      setErrorMessage("Password must be at least 6 characters long.");
+    if (passwordData.newPassword.length < 8) {
+      setErrorMessage("Password must be at least 8 characters long.");
       return;
     }
 

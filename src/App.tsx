@@ -34,6 +34,7 @@ const Blog = lazy(() => import('./pages/Blog'));
 const BlogPost = lazy(() => import('./pages/BlogPost'));
 const UserUploads = lazy(() => import('./pages/dashboard/UserUploads'));
 const ManageUserFiles = lazy(() => import('./pages/admin/ManageUserFiles'));
+const CertificateVerify = lazy(() => import('./pages/CertificateVerify'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 import ScrollToTop from './components/ScrollToTop';
@@ -477,6 +478,8 @@ const AppRoutes = () => {
       <Route path="/terms" element={<TermsConditions />} />
       <Route path="/refund-policy" element={<RefundPolicy />} />
       <Route path="/refund" element={<RefundPolicy />} />
+      <Route path="/verify/:certId" element={<CertificateVerify />} />
+      <Route path="/verify-certificate/:certId" element={<CertificateVerify />} />
       <Route path="/404" element={<NotFound />} />
 
       {/* Protected Routes */}

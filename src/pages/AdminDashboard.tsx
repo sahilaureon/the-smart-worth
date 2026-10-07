@@ -36,7 +36,8 @@ import KYCManagement from './admin/KYCManagement';
 import CertificateManagement from './admin/CertificateManagement';
 import UnknownUsersManagement from './admin/UnknownUsersManagement';
 import PaymentHelperManagement from './admin/PaymentHelperManagement';
-import { LifeBuoy } from 'lucide-react';
+import ReferredCodeTracker from './admin/ReferredCodeTracker';
+import { LifeBuoy, Share2 } from 'lucide-react';
 
 const sidebarItems = [
   { icon: LayoutDashboard, label: 'Overview', path: '/admin' },
@@ -46,6 +47,7 @@ const sidebarItems = [
   { icon: Bell, label: 'Profile Requests', path: '/admin/profile-requests' },
   { icon: CreditCard, label: 'Transactions', path: '/admin/transactions' },
   { icon: CreditCard, label: 'Withdrawals', path: '/admin/withdrawals' },
+  { icon: Share2, label: 'Referred Code Tracker', path: '/admin/referral-tracker' },
   { icon: Package, label: 'Packages', path: '/admin/packages' },
   { icon: LayoutDashboard, label: 'Courses', path: '/admin/courses' },
   { icon: BookOpen, label: 'E-Books', path: '/admin/ebooks' },
@@ -99,6 +101,7 @@ export default function AdminDashboard() {
       case '/admin/payment-helper': return 'Payment Helper';
       case '/admin/transactions': return 'Transactions';
       case '/admin/withdrawals': return 'Withdrawals';
+      case '/admin/referral-tracker': return 'Referred Code Tracker';
       case '/admin/packages': return 'Packages';
       case '/admin/courses': return 'Courses';
       case '/admin/ebooks': return 'E-Books';
@@ -358,6 +361,7 @@ export default function AdminDashboard() {
                 <Route path="/payment-helper" element={<PaymentHelperManagement />} />
                 <Route path="/transactions" element={<TransactionManagement />} />
                 <Route path="/withdrawals" element={<WithdrawalManagement />} />
+                <Route path="/referral-tracker" element={<ReferredCodeTracker />} />
                 <Route path="/packages" element={<PackageManagement />} />
                 <Route path="/courses" element={<CourseManagement />} />
                 <Route path="/ebooks" element={<EbookManagement />} />

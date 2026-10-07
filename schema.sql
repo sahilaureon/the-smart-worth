@@ -198,20 +198,58 @@ CREATE POLICY "Users can view own enrollments." ON public.enrollments FOR SELECT
 DROP POLICY IF EXISTS "Admins can view all enrollments." ON public.enrollments;
 CREATE POLICY "Admins can view all enrollments." ON public.enrollments FOR SELECT USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR role = 'ADMIN')));
 
--- 7. Referrals Table
+-- 7. Referral Codes Table
+CREATE TABLE IF NOT EXISTS public.referral_codes (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    creator_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    code TEXT UNIQUE NOT NULL,
+    discount_percent NUMERIC DEFAULT 10,
+    earning_percent NUMERIC DEFAULT 60,
+    is_active BOOLEAN DEFAULT TRUE,
+    clicks INTEGER DEFAULT 0,
+    enrollments INTEGER DEFAULT 0,
+    usage_count INTEGER DEFAULT 0,
+    total_earnings NUMERIC DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS for referral_codes
+ALTER TABLE public.referral_codes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public can view active referral codes" ON public.referral_codes;
+CREATE POLICY "Public can view active referral codes" ON public.referral_codes FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Users can manage their referral codes" ON public.referral_codes;
+CREATE POLICY "Users can manage their referral codes" ON public.referral_codes FOR ALL USING (auth.uid() = user_id OR auth.uid() = creator_id);
+DROP POLICY IF EXISTS "Admins can manage all referral codes" ON public.referral_codes;
+CREATE POLICY "Admins can manage all referral codes" ON public.referral_codes FOR ALL USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR role = 'ADMIN')));
+
+-- 8. Referrals Table (Conversions & Commission Records)
 CREATE TABLE IF NOT EXISTS public.referrals (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     referrer_id UUID REFERENCES auth.users(id),
     referred_id UUID REFERENCES auth.users(id),
+    referred_user_id UUID,
     referred_email TEXT,
+    referral_code TEXT,
     package_id TEXT REFERENCES public.packages(id),
+    package_name TEXT,
     order_id TEXT,
     payment_id TEXT,
-    amount DECIMAL(10, 2),
-    commission_earned DECIMAL(10, 2),
+    amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    rate_percent DECIMAL(5, 2) NOT NULL DEFAULT 60.00,
+    commission_earned DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    commission_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     status TEXT DEFAULT 'completed',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Enable RLS for referrals
+ALTER TABLE public.referrals ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can view their referrals" ON public.referrals;
+CREATE POLICY "Users can view their referrals" ON public.referrals FOR SELECT USING (auth.uid() = referrer_id);
+DROP POLICY IF EXISTS "Admins can view all referrals" ON public.referrals;
+CREATE POLICY "Admins can view all referrals" ON public.referrals FOR ALL USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR role = 'ADMIN')));
 
 -- 9. Transactions Table
 CREATE TABLE IF NOT EXISTS public.transactions (

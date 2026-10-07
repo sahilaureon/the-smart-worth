@@ -93,9 +93,9 @@ const About = () => {
             {/* Left Column: Founder Portrait & Classic Nameplate */}
             <div className="lg:col-span-5 p-6 sm:p-8 bg-slate-50 border-b lg:border-b-0 lg:border-r border-slate-200 flex flex-col justify-between">
               <div className="rounded-lg overflow-hidden border border-slate-200 bg-white shadow-2xs">
-                <div className="aspect-[4/4] sm:aspect-[4/3] lg:aspect-square overflow-hidden bg-slate-100">
+                <div className="aspect-[16/9] w-full overflow-hidden bg-slate-100">
                   <img
-                    src="https://i.postimg.cc/Sxb2Qwvd/file-000000005a8c82079fdded954b4f0c04.png"
+                    src="https://i.postimg.cc/k9mHTCyk/file-00000000886482088bbb90f5d935170f.jpg"
                     alt="Sahil Aureon - Founder of The Smart Worth"
                     className="w-full h-full object-cover object-top"
                     referrerPolicy="no-referrer"

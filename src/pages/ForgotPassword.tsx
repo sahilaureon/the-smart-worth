@@ -114,8 +114,8 @@ const ForgotPassword = () => {
         throw new Error('Passwords do not match.');
       }
 
-      if (newPassword.length < 6) {
-        throw new Error('Password must be at least 6 characters long.');
+      if (newPassword.length < 8) {
+        throw new Error('Password must be at least 8 characters long.');
       }
 
       const response = await fetchApi('/update-user', {

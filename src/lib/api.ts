@@ -180,9 +180,9 @@ export async function fetchApi(path: string, options: RequestInit = {}): Promise
     ...(userEmail ? { 'X-User-Email': String(userEmail) } : {})
   };
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
     try {
       const res = await fetch(localUrl, {
         ...options,
@@ -191,19 +191,17 @@ export async function fetchApi(path: string, options: RequestInit = {}): Promise
       });
       clearTimeout(timeoutId);
 
-      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < 2) {
-        await sleep(500 * (attempt + 1));
+      // Only retry on transient 502/503/504 gateway errors
+      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < 1) {
+        await sleep(250);
         continue;
       }
 
-      if (res.status !== 404 || !externalUrl) {
-        return await unwrapProtectedResponse(res);
-      }
-      break;
+      return await unwrapProtectedResponse(res);
     } catch {
       clearTimeout(timeoutId);
-      if (attempt < 2) {
-        await sleep(500 * (attempt + 1));
+      if (attempt < 1) {
+        await sleep(250);
         continue;
       }
     }
