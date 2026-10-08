@@ -38,8 +38,9 @@ requiredEnv.forEach(key => {
 });
 
 // 2. SUPABASE & RAZORPAY INITIALIZATION
-const SUPABASE_URL_VAL = process.env.VITE_SUPABASE_URL || 'https://placeholder-url.supabase.co';
-const SUPABASE_KEY_VAL = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-key';
+const SUPABASE_URL_VAL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://placeholder-url.supabase.co';
+const SUPABASE_KEY_VAL = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'placeholder-key';
+
 
 const createServiceFetch = (enforceServiceRole: boolean): typeof fetch => async (input, init) => {
   const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as any)?.url || '';
@@ -661,10 +662,10 @@ app.get('/api/health', (req, res) => {
 
 const JWT_SECRET = process.env.JWT_SECRET || 'tsw-fallback-secret-key-2026';
 const isSupabaseConfigured = Boolean(
-  process.env.VITE_SUPABASE_URL &&
-  !process.env.VITE_SUPABASE_URL.includes('placeholder') &&
-  process.env.SUPABASE_SERVICE_ROLE_KEY &&
-  !process.env.SUPABASE_SERVICE_ROLE_KEY.includes('placeholder')
+  (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL) &&
+  !(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').includes('placeholder') &&
+  (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY) &&
+  !(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').includes('placeholder')
 );
 const isRazorpayConfigured = Boolean(
   process.env.VITE_RAZORPAY_KEY_ID &&
@@ -867,6 +868,8 @@ const getFallbackTable = (table: string): any[] => {
         { key: 'site_title', value: 'The Smart Worth' },
         { key: 'site_description', value: 'Discover skills that build your career with The Smart Worth.' }
       ]);
+    } else if (table === 'certificates') {
+      fallbackTables.set(table, []);
     } else {
       fallbackTables.set(table, []);
     }
@@ -4207,54 +4210,65 @@ app.get('/api/certificates/:userId', verifyUser, async (req, res) => {
 
 // --- PUBLIC CERTIFICATE VERIFICATION ---
 app.get('/api/certificates/verify/:certId', async (req, res) => {
-  const certId = String(req.params.certId || '').trim();
-  if (!certId) {
-    return res.status(400).json({ error: 'Certificate ID is required' });
+  const rawCertId = String(req.params.certId || '').trim();
+  // Sanitize: allow alphanumeric, hyphens, underscores; max 64 chars
+  const sanitizedCertId = rawCertId.replace(/[^a-zA-Z0-9\-_]/g, '').slice(0, 64);
+  if (!sanitizedCertId) {
+    return res.status(400).json({
+      error: 'Valid Certificate ID is required',
+      status: 'NOT FOUND',
+      verified: false
+    });
   }
 
   let foundCert: any = null;
 
-  // 1. Search fallback table
-  const fallbackCerts = getFallbackTable('certificates');
-  foundCert = fallbackCerts.find(
-    (c: any) =>
-      String(c.id).toLowerCase() === certId.toLowerCase() ||
-      String(c.certificate_id || '').toLowerCase() === certId.toLowerCase()
-  );
-
-  // 2. Search Supabase if configured
-  if (!foundCert && isSupabaseConfigured) {
+  // 1. Search Supabase first if configured
+  if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabaseAdmin
         .from('certificates')
         .select('*')
-        .eq('id', certId)
+        .or(`certificate_id.ilike.${sanitizedCertId},id.eq.${sanitizedCertId}`)
         .maybeSingle();
       if (!error && data) {
         foundCert = data;
       }
-    } catch (e) {
-      console.warn('Supabase certificate search failed:', e);
+    } catch {
+      // Fallback query if certificate_id column doesn't exist yet in Supabase
+      try {
+        const { data } = await supabaseAdmin
+          .from('certificates')
+          .select('*')
+          .eq('id', sanitizedCertId)
+          .maybeSingle();
+        if (data) foundCert = data;
+      } catch {}
     }
   }
 
-  // If still not found, check if it's a TSW-CERT format or fallback search
+  // 2. Search fallback in-memory table ONLY if not found in Supabase
   if (!foundCert) {
-    // Check fallback by partial ID or first match if demo ID
+    const fallbackCerts = getFallbackTable('certificates');
     foundCert = fallbackCerts.find(
-      (c: any) => certId.includes(String(c.id).slice(0, 8))
+      (c: any) =>
+        String(c.certificate_id || '').trim().toLowerCase() === sanitizedCertId.toLowerCase() ||
+        String(c.id || '').trim().toLowerCase() === sanitizedCertId.toLowerCase()
     );
   }
 
+  // 3. Not found handling (Never return fake certificate information)
   if (!foundCert) {
     return res.status(404).json({
-      error: 'Certificate not found or verification ID invalid',
+      error: 'Certificate Not Found',
+      message: 'The Certificate ID provided could not be found in The Smart Worth verification database.',
+      status: 'NOT FOUND',
       verified: false,
-      certId
+      certId: sanitizedCertId
     });
   }
 
-  // Enrich with user profile data
+  // Enrich with user profile data if user_id is linked
   let profileData: any = null;
   if (isSupabaseConfigured && foundCert.user_id) {
     try {
@@ -4273,38 +4287,366 @@ app.get('/api/certificates/verify/:certId', async (req, res) => {
     );
   }
 
-  // Resolve package name
-  let userPkgName = profileData?.package_name || '';
-  if (!userPkgName && profileData?.package_id) {
+  // Resolve course / package name
+  let resolvedCourseName = foundCert.course_name || foundCert.package_name || '';
+  if (!resolvedCourseName && profileData?.package_name) {
+    resolvedCourseName = profileData.package_name;
+  }
+  if (!resolvedCourseName && profileData?.package_id) {
     const pkg = getFallbackTable('packages').find(
       (p: any) => String(p.id) === String(profileData.package_id)
     );
-    if (pkg?.name) userPkgName = pkg.name;
+    if (pkg?.name) resolvedCourseName = pkg.name;
+  }
+  if (!resolvedCourseName) {
+    resolvedCourseName = 'Skill Specialization Program';
   }
 
+  // Candidate Name
+  const candidateName =
+    foundCert.candidate_name ||
+    foundCert.user_name ||
+    profileData?.full_name ||
+    'Valued Learner';
+
+  // Determine true certificate status
+  const rawStatus = String(foundCert.status || 'verified').trim().toLowerCase();
+  const status: 'verified' | 'pending' | 'revoked' =
+    rawStatus === 'revoked' ? 'revoked' : rawStatus === 'pending' ? 'pending' : 'verified';
+
+  const certUniqueId = foundCert.certificate_id || foundCert.id || sanitizedCertId;
+  const canonicalVerifyUrl = `https://verify.thesmartworth.site/certificate/${certUniqueId}`;
+
   const result = {
-    id: foundCert.id,
-    user_id: foundCert.user_id,
-    user_name: foundCert.user_name || profileData?.full_name || 'Valued Learner',
-    course_name: foundCert.package_name || 'Skill Specialization Course',
-    package_name: userPkgName || 'The Smart Worth Learning Package',
-    email: profileData?.email || '',
-    tsw_id: profileData?.tsw_id || ('TSW-' + String(foundCert.user_id || 'MEMBER').replace(/[^a-zA-Z0-9]/g, '').slice(0, 7).toUpperCase()),
-    profile_image: profileData?.avatar_url || profileData?.profile_pic || '',
-    completion_date: foundCert.created_at,
-    certificate_url: foundCert.certificate_url,
-    created_at: foundCert.created_at,
-    verification_status: 'VERIFIED & AUTHENTIC',
-    verified: true,
+    id: foundCert.id || certUniqueId,
+    certificate_id: certUniqueId,
+    candidate_name: candidateName,
+    user_name: candidateName,
+    course_name: resolvedCourseName,
+    package_name: resolvedCourseName,
+    certificate_type: foundCert.certificate_type || 'Certificate of Completion',
+    issue_date: foundCert.issue_date || foundCert.created_at || new Date().toISOString(),
+    completion_date: foundCert.completion_date || foundCert.created_at || new Date().toISOString(),
+    status: status,
+    verification_status: status === 'verified' ? 'VERIFIED' : status === 'pending' ? 'PENDING' : 'REVOKED',
+    verified: status === 'verified',
+    issued_by: foundCert.issued_by || 'The Smart Worth',
+    verification_url: canonicalVerifyUrl,
+    verification_date: new Date().toISOString(),
+    certificate_url: foundCert.certificate_url || '',
+    user_id: foundCert.user_id || null,
+    email: profileData?.email || foundCert.email || '',
+    tsw_id: profileData?.tsw_id || ('TSW-' + String(foundCert.user_id || certUniqueId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 7).toUpperCase()),
+    profile_image: profileData?.avatar_url || profileData?.profile_pic || foundCert.profile_image || '',
+    created_at: foundCert.created_at || new Date().toISOString(),
     platform: 'The Smart Worth (TSW) Official Verification Portal'
   };
 
   res.json(result);
 });
 
+// --- ADMIN CERTIFICATE MANAGEMENT ROUTES ---
+
+// 1. Generate next sequential Certificate ID (e.g., TSW-2026-000004)
+app.get('/api/admin/certificates/next-id', verifyUser, verifyAdmin, async (req, res) => {
+  let allCerts = [...getFallbackTable('certificates')];
+  if (isSupabaseConfigured) {
+    try {
+      const { data } = await supabaseAdmin.from('certificates').select('certificate_id, id');
+      if (Array.isArray(data)) {
+        allCerts = [...data, ...allCerts];
+      }
+    } catch {}
+  }
+
+  let maxNum = 0;
+  const currentYear = new Date().getFullYear();
+  allCerts.forEach((c: any) => {
+    const certId = String(c.certificate_id || c.id || '');
+    const match = certId.match(/TSW-\d{4}-(\d+)/i);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+    }
+  });
+
+  const nextNum = maxNum + 1;
+  const nextId = `TSW-${currentYear}-${String(nextNum).padStart(6, '0')}`;
+  res.json({ nextId, count: allCerts.length });
+});
+
+// 2. Get all certificates for admin (pure database records, no fake mock data)
+app.get('/api/admin/certificates', verifyUser, verifyAdmin, async (req, res) => {
+  let allCerts: any[] = [];
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('certificates')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!error && Array.isArray(data)) {
+        allCerts = data;
+      }
+    } catch (e) {
+      console.warn('Error fetching admin certificates from Supabase:', e);
+    }
+  }
+
+  // Only fall back to in-memory store if Supabase is NOT configured
+  if (!isSupabaseConfigured && allCerts.length === 0) {
+    allCerts = [...getFallbackTable('certificates')];
+  }
+
+  // Format and sort all certificates
+  const formatted = allCerts.map((c: any, index: number) => {
+    const certUniqueId = c.certificate_id || c.id || `TSW-2026-${String(index + 1).padStart(6, '0')}`;
+    const rawStatus = String(c.status || 'verified').trim().toLowerCase();
+    const status: 'verified' | 'pending' | 'revoked' =
+      rawStatus === 'revoked' ? 'revoked' : rawStatus === 'pending' ? 'pending' : 'verified';
+
+    return {
+      id: c.id || certUniqueId,
+      certificate_id: certUniqueId,
+      candidate_name: c.candidate_name || c.user_name || 'Valued Learner',
+      user_name: c.candidate_name || c.user_name || 'Valued Learner',
+      course_name: c.course_name || c.package_name || 'Course Completion',
+      package_name: c.course_name || c.package_name || 'Course Completion',
+      certificate_type: c.certificate_type || 'Certificate of Completion',
+      issue_date: c.issue_date || c.created_at || new Date().toISOString(),
+      completion_date: c.completion_date || c.created_at || new Date().toISOString(),
+      status,
+      issued_by: c.issued_by || 'The Smart Worth',
+      verification_url: c.verification_url || `https://verify.thesmartworth.site/certificate/${certUniqueId}`,
+      certificate_url: c.certificate_url || '',
+      user_id: c.user_id || null,
+      email: c.email || '',
+      created_at: c.created_at || new Date().toISOString(),
+      updated_at: c.updated_at || new Date().toISOString()
+    };
+  });
+
+  res.json(formatted);
+});
+
+// 3. Create new certificate
+app.post('/api/admin/certificates', verifyUser, verifyAdmin, async (req, res) => {
+  const {
+    candidate_name,
+    course_name,
+    certificate_id,
+    certificate_type,
+    issue_date,
+    completion_date,
+    status,
+    issued_by,
+    email,
+    user_id,
+    certificate_url
+  } = req.body;
+
+  if (!candidate_name || !String(candidate_name).trim()) {
+    return res.status(400).json({ error: 'Candidate name is required' });
+  }
+  if (!course_name || !String(course_name).trim()) {
+    return res.status(400).json({ error: 'Course or program name is required' });
+  }
+
+  const cleanCandidateName = String(candidate_name).trim();
+  const cleanCourseName = String(course_name).trim();
+  const cleanCertId = String(certificate_id || '').trim() || `TSW-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
+  const cleanStatus = (['verified', 'pending', 'revoked'].includes(String(status).toLowerCase()))
+    ? String(status).toLowerCase()
+    : 'verified';
+
+  // Check uniqueness of certificate_id
+  const fb = getFallbackTable('certificates');
+  const existingInFb = fb.find(
+    (c: any) => String(c.certificate_id || c.id || '').toLowerCase() === cleanCertId.toLowerCase()
+  );
+  if (existingInFb) {
+    return res.status(409).json({ error: `Certificate ID "${cleanCertId}" already exists. Please use a unique ID.` });
+  }
+
+  if (isSupabaseConfigured) {
+    try {
+      const { data: existingDb } = await supabaseAdmin
+        .from('certificates')
+        .select('id, certificate_id')
+        .or(`certificate_id.ilike.${cleanCertId},id.eq.${cleanCertId}`)
+        .maybeSingle();
+      if (existingDb) {
+        return res.status(409).json({ error: `Certificate ID "${cleanCertId}" already exists in the database.` });
+      }
+    } catch {}
+  }
+
+  const newId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const canonicalUrl = `https://verify.thesmartworth.site/certificate/${cleanCertId}`;
+  const validUuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const safeUserId = (user_id && validUuidRegex.test(String(user_id).trim())) ? String(user_id).trim() : null;
+
+  const newRecord = {
+    id: newId,
+    certificate_id: cleanCertId,
+    candidate_name: cleanCandidateName,
+    user_name: cleanCandidateName,
+    course_name: cleanCourseName,
+    package_name: cleanCourseName,
+    certificate_type: certificate_type || 'Certificate of Completion',
+    issue_date: issue_date || now,
+    completion_date: completion_date || issue_date || now,
+    status: cleanStatus,
+    issued_by: issued_by || 'The Smart Worth',
+    verification_url: canonicalUrl,
+    certificate_url: certificate_url || canonicalUrl,
+    user_id: safeUserId,
+    email: email || '',
+    created_at: now,
+    updated_at: now
+  };
+
+  // Try insert into Supabase
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('certificates')
+        .insert(newRecord)
+        .select()
+        .maybeSingle();
+
+      if (error) {
+        console.warn('Supabase full certificate insert warning:', error);
+        // Fallback to minimal columns if legacy schema without all columns
+        await supabaseAdmin
+          .from('certificates')
+          .insert({
+            id: newRecord.id,
+            user_id: safeUserId,
+            user_name: newRecord.candidate_name,
+            package_name: newRecord.course_name,
+            certificate_url: newRecord.certificate_url,
+            created_at: newRecord.created_at
+          });
+      }
+    } catch (dbErr) {
+      console.warn('Supabase insert exception for certificate:', dbErr);
+    }
+  }
+
+  // Update in-memory fallback
+  fb.unshift(newRecord);
+
+  res.status(201).json({ success: true, certificate: newRecord });
+});
+
+// 4. Update status (VERIFIED <-> PENDING <-> REVOKED)
+app.patch('/api/admin/certificates/:id/status', verifyUser, verifyAdmin, async (req, res) => {
+  const targetId = String(req.params.id || '').trim();
+  const { status } = req.body;
+
+  const validStatuses = ['verified', 'pending', 'revoked'];
+  const cleanStatus = String(status || '').trim().toLowerCase();
+  if (!validStatuses.includes(cleanStatus)) {
+    return res.status(400).json({ error: 'Status must be verified, pending, or revoked' });
+  }
+
+  const now = new Date().toISOString();
+  let updatedRecord: any = null;
+
+  // 1. Update in-memory fallback
+  const fb = getFallbackTable('certificates');
+  fb.forEach((c: any, index: number) => {
+    if (String(c.id) === targetId || String(c.certificate_id) === targetId) {
+      fb[index] = { ...c, status: cleanStatus, updated_at: now };
+      updatedRecord = fb[index];
+    }
+  });
+
+  // 2. Update Supabase
+  if (isSupabaseConfigured) {
+    try {
+      const { data } = await supabaseAdmin
+        .from('certificates')
+        .update({ status: cleanStatus, updated_at: now })
+        .or(`id.eq.${targetId},certificate_id.eq.${targetId}`)
+        .select()
+        .maybeSingle();
+      if (data) {
+        updatedRecord = { ...updatedRecord, ...data, status: cleanStatus };
+      }
+    } catch (e) {
+      console.warn('Supabase status update error:', e);
+    }
+  }
+
+  if (!updatedRecord) {
+    // If not found in memory, create/update placeholder
+    updatedRecord = { id: targetId, status: cleanStatus, updated_at: now };
+  }
+
+  res.json({ success: true, certificate: updatedRecord });
+});
+
+// 5. Update full certificate record
+app.put('/api/admin/certificates/:id', verifyUser, verifyAdmin, async (req, res) => {
+  const targetId = String(req.params.id || '').trim();
+  const updateData = req.body || {};
+  const now = new Date().toISOString();
+
+  let updatedRecord: any = null;
+
+  const fb = getFallbackTable('certificates');
+  fb.forEach((c: any, idx: number) => {
+    if (String(c.id) === targetId || String(c.certificate_id) === targetId) {
+      fb[idx] = { ...c, ...updateData, updated_at: now };
+      updatedRecord = fb[idx];
+    }
+  });
+
+  if (isSupabaseConfigured) {
+    try {
+      const { data } = await supabaseAdmin
+        .from('certificates')
+        .update({ ...updateData, updated_at: now })
+        .or(`id.eq.${targetId},certificate_id.eq.${targetId}`)
+        .select()
+        .maybeSingle();
+      if (data) updatedRecord = { ...updatedRecord, ...data };
+    } catch {}
+  }
+
+  res.json({ success: true, certificate: updatedRecord });
+});
+
+// 6. Delete certificate
+app.delete('/api/admin/certificates/:id', verifyUser, verifyAdmin, async (req, res) => {
+  const targetId = String(req.params.id || '').trim();
+
+  if (isSupabaseConfigured) {
+    try {
+      await supabaseAdmin
+        .from('certificates')
+        .delete()
+        .or(`id.eq.${targetId},certificate_id.eq.${targetId}`);
+    } catch {}
+  }
+
+  const fb = getFallbackTable('certificates');
+  fallbackTables.set(
+    'certificates',
+    fb.filter((c: any) => String(c.id) !== targetId && String(c.certificate_id) !== targetId)
+  );
+
+  res.json({ success: true });
+});
+
+// User certificate creation endpoint (for student course completion)
 app.post('/api/certificates', async (req, res) => {
   const user = await getOptionalUser(req);
-  const { user_id, user_name, package_name, certificate_url } = req.body;
+  const { user_id, user_name, package_name, certificate_url, certificate_id } = req.body;
   const targetUserId = user_id || user?.id || 'guest';
   const normalizedCourse = String(package_name || 'Course Completion').trim();
   const normalizedKey = normalizedCourse.toLowerCase();
@@ -4313,7 +4655,7 @@ app.post('/api/certificates', async (req, res) => {
   const fallbackCerts = getFallbackTable('certificates').filter(
     (c: any) =>
       String(c.user_id) === String(targetUserId) &&
-      String(c.package_name || '').trim().toLowerCase() === normalizedKey
+      String(c.course_name || c.package_name || '').trim().toLowerCase() === normalizedKey
   );
   if (fallbackCerts.length > 0) {
     return res.status(409).json({
@@ -4330,7 +4672,7 @@ app.post('/api/certificates', async (req, res) => {
         .select('*')
         .eq('user_id', targetUserId);
       const found = (existingList || []).find(
-        (c: any) => String(c.package_name || '').trim().toLowerCase() === normalizedKey
+        (c: any) => String(c.package_name || c.course_name || '').trim().toLowerCase() === normalizedKey
       );
       if (found) {
         return res.status(409).json({
@@ -4342,33 +4684,50 @@ app.post('/api/certificates', async (req, res) => {
     } catch {}
   }
 
+  const newId = (req.body.id && typeof req.body.id === 'string' && req.body.id.length > 5) ? req.body.id : crypto.randomUUID();
+  const currentYear = new Date().getFullYear();
+  const generatedCertId = certificate_id || `TSW-${currentYear}-${Date.now().toString().slice(-6)}`;
+  const candidateName = user_name || user?.user_metadata?.full_name || 'Student';
+
   const newCert = {
-    id: (req.body.id && typeof req.body.id === 'string' && req.body.id.length > 5) ? req.body.id : crypto.randomUUID(),
-    certificate_id: req.body.certificate_id || '',
+    id: newId,
+    certificate_id: generatedCertId,
     user_id: targetUserId,
-    user_name: user_name || user?.user_metadata?.full_name || 'Student',
+    user_name: candidateName,
+    candidate_name: candidateName,
     package_name: normalizedCourse,
+    course_name: normalizedCourse,
+    certificate_type: 'Certificate of Completion',
+    issue_date: new Date().toISOString(),
+    completion_date: new Date().toISOString(),
+    status: 'verified',
+    issued_by: 'The Smart Worth',
+    verification_url: `https://verify.thesmartworth.site/certificate/${generatedCertId}`,
     certificate_url: certificate_url || '',
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
   };
 
   if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabaseAdmin
         .from('certificates')
-        .insert({
-          id: newCert.id,
-          user_id: newCert.user_id,
-          user_name: newCert.user_name,
-          package_name: newCert.package_name,
-          certificate_url: newCert.certificate_url,
-          created_at: newCert.created_at
-        })
+        .insert(newCert)
         .select()
         .maybeSingle();
       if (!error && data) {
+        getFallbackTable('certificates').unshift(newCert);
         return res.json(data);
       }
+      // Retry with safe original columns if needed
+      await supabaseAdmin.from('certificates').insert({
+        id: newCert.id,
+        user_id: newCert.user_id,
+        user_name: newCert.user_name,
+        package_name: newCert.package_name,
+        certificate_url: newCert.certificate_url,
+        created_at: newCert.created_at
+      });
     } catch {}
   }
 

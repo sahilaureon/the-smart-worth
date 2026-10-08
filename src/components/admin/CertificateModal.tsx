@@ -73,14 +73,25 @@ export default function CertificateModal({ user, onClose }: CertificateModalProp
     if (!uploadedImage || !selectedPackage) return;
     setIsSending(true);
     try {
+      const generatedCertId = `TSW-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
+      const candidateName = user.fullName || user.full_name || user.username || 'Student';
+
       await invokeAdminFunction('admin-action', {
         action: 'insert',
         table: 'certificates',
         payload: {
+          certificate_id: generatedCertId,
           user_id: user.id || user.uid,
-          user_name: user.fullName || user.full_name || user.username || 'Student',
+          user_name: candidateName,
+          candidate_name: candidateName,
           package_name: selectedPackage,
-          certificate_url: uploadedImage
+          course_name: selectedPackage,
+          certificate_type: 'Certificate of Completion',
+          status: 'verified',
+          issued_by: 'The Smart Worth',
+          verification_url: `https://verify.thesmartworth.site/certificate/${generatedCertId}`,
+          certificate_url: uploadedImage,
+          issue_date: new Date().toISOString()
         }
       });
 

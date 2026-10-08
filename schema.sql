@@ -370,28 +370,47 @@ CREATE POLICY "Users can manage their own KYC" ON public.kyc_records FOR ALL TO 
 DROP POLICY IF EXISTS "Admins can view all KYC" ON public.kyc_records;
 CREATE POLICY "Admins can view all KYC" ON public.kyc_records FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR role = 'ADMIN')));
 
--- 16. Certificates Table
+-- 16. Certificates Table (Verifiable Certificate System)
 CREATE TABLE IF NOT EXISTS public.certificates (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    user_name TEXT NOT NULL,
-    package_name TEXT NOT NULL,
-    certificate_url TEXT NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    certificate_id TEXT UNIQUE,
+    candidate_name TEXT,
+    user_name TEXT,
+    course_name TEXT,
+    package_name TEXT,
+    certificate_type TEXT DEFAULT 'Certificate of Completion',
+    issue_date TIMESTAMPTZ DEFAULT NOW(),
+    completion_date TIMESTAMPTZ DEFAULT NOW(),
+    status TEXT NOT NULL DEFAULT 'verified',
+    issued_by TEXT DEFAULT 'The Smart Worth',
+    verification_url TEXT,
+    certificate_url TEXT,
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    email TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Ownership and Permissions
 ALTER TABLE public.certificates OWNER TO postgres;
 ALTER TABLE public.certificates ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Public can view certificates for verification" ON public.certificates;
+CREATE POLICY "Public can view certificates for verification" ON public.certificates FOR SELECT USING (true);
+
 DROP POLICY IF EXISTS "Users can view own certificates" ON public.certificates;
-CREATE POLICY "Users can view own certificates" ON public.certificates FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can view own certificates" ON public.certificates FOR SELECT TO authenticated USING (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS "Users can insert own certificates" ON public.certificates;
-CREATE POLICY "Users can insert own certificates" ON public.certificates FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can insert own certificates" ON public.certificates FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS "Admins can manage all certificates" ON public.certificates;
-CREATE POLICY "Admins can manage all certificates" ON public.certificates FOR ALL USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR role = 'ADMIN')));
+CREATE POLICY "Admins can manage all certificates" ON public.certificates FOR ALL TO authenticated USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR role = 'ADMIN' OR role = 'superadmin')));
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_certificates_cert_id_unique ON public.certificates (LOWER(certificate_id));
+CREATE INDEX IF NOT EXISTS idx_certificates_user_id ON public.certificates (user_id);
+CREATE INDEX IF NOT EXISTS idx_certificates_status ON public.certificates (status);
+
 
 -- Automatically create/update enrollment when package_id is updated in profile
 CREATE OR REPLACE FUNCTION public.handle_package_enrollment()

@@ -26,7 +26,8 @@ import {
   Save,
   KeyRound,
   MapPin,
-  User
+  User,
+  ExternalLink
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { invokeAdminFunction } from '../../lib/supabase';
@@ -221,14 +222,26 @@ const UserCertificatesModal = ({ user, onClose }: { user: any; onClose: () => vo
                           : 'Issued'}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => downloadUserImage(cert.certificate_url, `${user.full_name}_${cert.package_name}`)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold shrink-0 cursor-pointer"
-                    >
-                      <Download size={12} />
-                      <span>Download</span>
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <a
+                        href={`/certificate/${encodeURIComponent(cert.certificate_id || cert.id)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-[11px] font-semibold transition-colors cursor-pointer"
+                        title="Open Public Verification"
+                      >
+                        <ExternalLink size={12} />
+                        <span>Verify</span>
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => downloadUserImage(cert.certificate_url, `${user.full_name}_${cert.package_name}`)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold shrink-0 cursor-pointer"
+                      >
+                        <Download size={12} />
+                        <span>Download</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

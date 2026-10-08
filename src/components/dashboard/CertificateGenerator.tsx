@@ -901,9 +901,9 @@ const CertificateGenerator = () => {
                     </div>
 
                     <div className="flex items-center gap-2 justify-end shrink-0 flex-wrap">
-                      {cert.id && (
+                      {(cert.certificate_id || cert.id) && (
                         <Link
-                          to={`/verify/${cert.id}`}
+                          to={`/certificate/${encodeURIComponent(cert.certificate_id || cert.id)}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="px-3 py-2 rounded-md bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-300 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"

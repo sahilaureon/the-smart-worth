@@ -61,12 +61,23 @@ export function resolveCertificatePlaceholders(
 }
 
 /**
- * Generate verification URL dynamically from cert ID and current location
+ * Generate permanent verification URL for certificates and QR codes
+ * Always formats as: https://verify.thesmartworth.site/certificate/{CERTIFICATE_ID}
  */
 export function getVerificationUrl(certId: string): string {
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://thesmartworth.site';
-  const cleanId = encodeURIComponent(certId.trim());
-  return `${origin}/verify/${cleanId}`;
+  const cleanId = encodeURIComponent((certId || 'TSW-CERT').trim());
+  return `https://verify.thesmartworth.site/certificate/${cleanId}`;
+}
+
+/**
+ * Get environment-aware verification URL (works in local dev/staging too)
+ */
+export function getActiveVerificationUrl(certId: string): string {
+  const cleanId = encodeURIComponent((certId || 'TSW-CERT').trim());
+  if (typeof window !== 'undefined' && window.location.origin) {
+    return `${window.location.origin}/certificate/${cleanId}`;
+  }
+  return `https://verify.thesmartworth.site/certificate/${cleanId}`;
 }
 
 /**

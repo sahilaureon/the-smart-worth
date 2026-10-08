@@ -444,7 +444,11 @@ const AppRoutes = () => {
   return (
     <Routes>
       {/* Public Routes */}
-      <Route path="/" element={user ? <Navigate to="/dashboard" replace /> : <Home />} />
+      <Route path="/" element={
+        (typeof window !== 'undefined' && window.location.hostname.toLowerCase().startsWith('verify.'))
+          ? <CertificateVerify />
+          : (user ? <Navigate to="/dashboard" replace /> : <Home />)
+      } />
       <Route path="/about" element={<About />} />
       <Route path="/courses" element={<PublicCourses />} />
       <Route path="/courses/:courseId" element={<CourseDetails />} />
@@ -479,7 +483,10 @@ const AppRoutes = () => {
       <Route path="/terms" element={<TermsConditions />} />
       <Route path="/refund-policy" element={<RefundPolicy />} />
       <Route path="/refund" element={<RefundPolicy />} />
+      <Route path="/certificate/:certId" element={<CertificateVerify />} />
+      <Route path="/certificate" element={<CertificateVerify />} />
       <Route path="/verify/:certId" element={<CertificateVerify />} />
+      <Route path="/verify" element={<CertificateVerify />} />
       <Route path="/verify-certificate/:certId" element={<CertificateVerify />} />
       <Route path="/404" element={<NotFound />} />
 

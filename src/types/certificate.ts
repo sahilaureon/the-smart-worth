@@ -76,3 +76,24 @@ export interface CertificateUserData {
   verification_status?: string;
   [key: string]: any;
 }
+
+export interface CertificateRecord {
+  id: string;
+  certificate_id: string;
+  candidate_name: string;
+  course_name: string;
+  certificate_type?: string;
+  issue_date?: string;
+  completion_date?: string;
+  status: 'verified' | 'pending' | 'revoked';
+  issued_by?: string;
+  verification_url?: string;
+  certificate_url?: string;
+  user_id?: string;
+  email?: string;
+  user_name?: string;
+  package_name?: string;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: any;
+}
