@@ -24,7 +24,8 @@ import {
   Download,
   X,
   Search,
-  RefreshCw
+  RefreshCw,
+  Share2
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { invokeAdminFunction } from '../../lib/supabase';
@@ -343,7 +344,17 @@ export default function AdminOverview() {
           <Zap className="w-5 h-5 text-amber-500" />
           <h3 className="font-bold text-slate-900">Quick Actions</h3>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <Link
+            to="/admin/referral-tracker"
+            className="flex items-center justify-between px-4 py-3 rounded-md bg-white hover:bg-purple-50 text-slate-700 hover:text-purple-700 transition-colors border border-slate-300 hover:border-purple-300 shadow-2xs"
+          >
+            <div className="flex items-center space-x-2.5">
+              <Share2 className="w-4 h-4 text-[#615DFA]" />
+              <span className="font-semibold text-sm">Referred Code Tracker</span>
+            </div>
+            <ArrowUpRight className="w-4 h-4 text-slate-400" />
+          </Link>
           <button
             type="button"
             onClick={() => handleQuickAction('Clear Old Tickets')}

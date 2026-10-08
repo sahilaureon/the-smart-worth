@@ -683,6 +683,7 @@ const ADMIN_EMAIL_SET = new Set([
   'helplinesmartworth@gmail.com',
   'sahilbaislaa@gmail.com',
   'sahilaureon@gmail.com',
+  'theotpworth@gmail.com',
   String(process.env.VITE_ADMIN_EMAIL || '').trim().toLowerCase()
 ].filter(Boolean));
 
@@ -888,11 +889,18 @@ interface ReferralCodeInfo {
   userId: string;
   discountPercent: number;
   earningPercent: number;
+  companyPercent: number;
 }
 
 const resolveReferralCodeInfo = async (codeStr?: string): Promise<ReferralCodeInfo | null> => {
   const cleanCode = String(codeStr || '').trim().toUpperCase();
   if (!cleanCode) return null;
+
+  const sanitizeEarning = (rawEarn: any): number => {
+    const n = Number(rawEarn);
+    if (!Number.isFinite(n) || n < 51 || n > 70) return 60;
+    return Math.round(n);
+  };
 
   // 1. Check custom referral_codes table in Supabase
   if (isSupabaseConfigured) {
@@ -904,11 +912,14 @@ const resolveReferralCodeInfo = async (codeStr?: string): Promise<ReferralCodeIn
         .maybeSingle();
 
       if (rcData && (rcData.user_id || rcData.creator_id)) {
+        const earning = sanitizeEarning(rcData.earning_percent);
+        const discount = 70 - earning;
         return {
           code: rcData.code || cleanCode,
           userId: rcData.user_id || rcData.creator_id,
-          discountPercent: Number(rcData.discount_percent || 10),
-          earningPercent: Number(rcData.earning_percent || 60)
+          companyPercent: 30,
+          earningPercent: earning,
+          discountPercent: discount
         };
       }
     } catch {}
@@ -918,11 +929,14 @@ const resolveReferralCodeInfo = async (codeStr?: string): Promise<ReferralCodeIn
   const fbCodes = getFallbackTable('referral_codes');
   const fbMatched = fbCodes.find((c: any) => String(c.code).toUpperCase() === cleanCode);
   if (fbMatched && (fbMatched.user_id || fbMatched.creator_id)) {
+    const earning = sanitizeEarning(fbMatched.earning_percent);
+    const discount = 70 - earning;
     return {
       code: fbMatched.code || cleanCode,
       userId: fbMatched.user_id || fbMatched.creator_id,
-      discountPercent: Number(fbMatched.discount_percent || 10),
-      earningPercent: Number(fbMatched.earning_percent || 60)
+      companyPercent: 30,
+      earningPercent: earning,
+      discountPercent: discount
     };
   }
 
@@ -939,8 +953,9 @@ const resolveReferralCodeInfo = async (codeStr?: string): Promise<ReferralCodeIn
         return {
           code: profData.referral_code || cleanCode,
           userId: profData.id,
-          discountPercent: 10,
-          earningPercent: 60
+          companyPercent: 30,
+          earningPercent: 60,
+          discountPercent: 10
         };
       }
     } catch {}
@@ -952,8 +967,9 @@ const resolveReferralCodeInfo = async (codeStr?: string): Promise<ReferralCodeIn
       return {
         code: prof.referral_code,
         userId: prof.id || key,
-        discountPercent: 10,
-        earningPercent: 60
+        companyPercent: 30,
+        earningPercent: 60,
+        discountPercent: 10
       };
     }
   }
@@ -961,25 +977,36 @@ const resolveReferralCodeInfo = async (codeStr?: string): Promise<ReferralCodeIn
   return null;
 };
 
-// --- REAL REFERRAL COMMISSION CALCULATOR & LOGIC ---
+// --- REAL DYNAMIC REFERRAL COMMISSION CALCULATOR & LOGIC ---
 
 const getPackageDetailsById = async (packageId?: string) => {
   if (!packageId) return null;
   const cleanId = String(packageId).trim().toLowerCase();
 
-  if (lastKnownPackages && lastKnownPackages.length > 0) {
-    const found = lastKnownPackages.find((p: any) => String(p.id).toLowerCase() === cleanId);
-    if (found) return found;
-  }
-
+  // 1. Always query Supabase public.packages table first to retrieve the current dynamic package price
   if (isSupabaseConfigured) {
     try {
       const { data } = await supabaseAdmin.from('packages').select('*').eq('id', packageId).maybeSingle();
       if (data) return data;
+      const { data: dataSlug } = await supabaseAdmin.from('packages').select('*').ilike('slug', cleanId).maybeSingle();
+      if (dataSlug) return dataSlug;
+      const { data: dataIlike } = await supabaseAdmin.from('packages').select('*').ilike('id', cleanId).maybeSingle();
+      if (dataIlike) return dataIlike;
     } catch {}
   }
 
-  const fb = getFallbackTable('packages').find((p: any) => String(p.id).toLowerCase() === cleanId);
+  // 2. Query cached packages
+  if (lastKnownPackages && lastKnownPackages.length > 0) {
+    const found = lastKnownPackages.find((p: any) =>
+      String(p.id).toLowerCase() === cleanId || String(p.slug || '').toLowerCase() === cleanId
+    );
+    if (found) return found;
+  }
+
+  // 3. Fallback table
+  const fb = getFallbackTable('packages').find((p: any) =>
+    String(p.id).toLowerCase() === cleanId || String(p.slug || '').toLowerCase() === cleanId
+  );
   return fb || null;
 };
 
@@ -999,15 +1026,9 @@ const getReferrerPackageCommissionRate = async (referrerId: string): Promise<num
     }
 
     const pkgDetails = await getPackageDetailsById(referrerPkgId);
-    if (pkgDetails?.commission_rate || pkgDetails?.commission_percent) {
-      return Number(pkgDetails.commission_rate || pkgDetails.commission_percent);
+    if (pkgDetails?.commission_rate && Number(pkgDetails.commission_rate) >= 51 && Number(pkgDetails.commission_rate) <= 70) {
+      return Number(pkgDetails.commission_rate);
     }
-
-    const pkgLower = String(referrerPkgId).toLowerCase();
-    if (pkgLower.includes('finance') || pkgLower.includes('diamond') || pkgLower.includes('business')) return 70;
-    if (pkgLower.includes('tech') || pkgLower.includes('platinum') || pkgLower.includes('next')) return 75;
-    if (pkgLower.includes('creator') || pkgLower.includes('gold')) return 60;
-    if (pkgLower.includes('silver') || pkgLower.includes('starter')) return 50;
     return 60;
   } catch {
     return 60;
@@ -1067,45 +1088,92 @@ const creditReferralCommissionForPurchase = async (params: {
       return;
     }
 
-    // Dedup check: make sure commission for this orderId / paymentId hasn't already been credited
-    const orderKey = orderId || paymentId || `signup_${referredUserId}`;
+    // DUPLICATE COMMISSION PROTECTION:
+    // One successful payment/order must not generate commission twice.
+    const orderKey = orderId || paymentId || `verified_${referredUserId}_${packageId || 'pkg'}`;
     if (processedCommissionOrders.has(orderKey)) {
       return;
     }
-    processedCommissionOrders.add(orderKey);
+    if (orderId && processedCommissionOrders.has(orderId)) return;
+    if (paymentId && processedCommissionOrders.has(paymentId)) return;
 
-    // REAL DYNAMIC COMMISSION CALCULATOR
-    // 1. Fetch package details for the purchased package
+    if (isSupabaseConfigured) {
+      try {
+        if (orderId) {
+          const { data: existingRefOrd } = await supabaseAdmin
+            .from('referrals')
+            .select('id')
+            .eq('order_id', orderId)
+            .maybeSingle();
+          if (existingRefOrd?.id) {
+            processedCommissionOrders.add(orderId);
+            return;
+          }
+        }
+        if (paymentId) {
+          const { data: existingRefPay } = await supabaseAdmin
+            .from('referrals')
+            .select('id')
+            .eq('payment_id', paymentId)
+            .maybeSingle();
+          if (existingRefPay?.id) {
+            processedCommissionOrders.add(paymentId);
+            return;
+          }
+        }
+      } catch {}
+    }
+
+    processedCommissionOrders.add(orderKey);
+    if (orderId) processedCommissionOrders.add(orderId);
+    if (paymentId) processedCommissionOrders.add(paymentId);
+
+    // DYNAMIC PACKAGE PRICE: Always fetch actual package price from public.packages
     const purchasedPackage = await getPackageDetailsById(packageId);
     const packageName = purchasedPackage?.name || packageId || 'Course Package';
 
-    // 2. Determine actual base purchase price (real paid amount or package offer/price)
-    let baseAmount = Number(paidAmount || 0);
-    if (baseAmount <= 0 && purchasedPackage) {
-      baseAmount = Number(purchasedPackage.offer_price || purchasedPackage.price || purchasedPackage.original_price || 0);
-    }
-    if (baseAmount <= 0) {
-      baseAmount = Number(originalPrice || 0);
-    }
-    if (baseAmount <= 0 && orderId && isSupabaseConfigured) {
+    let packagePrice = Number(
+      purchasedPackage?.price ||
+      purchasedPackage?.offer_price ||
+      purchasedPackage?.original_price ||
+      0
+    );
+
+    if (packagePrice <= 0 && orderId && isSupabaseConfigured) {
       try {
-        const { data: ord } = await supabaseAdmin.from('razorpay_orders').select('amount').eq('razorpay_order_id', orderId).maybeSingle();
-        if (ord?.amount) baseAmount = Number(ord.amount);
+        const { data: ord } = await supabaseAdmin
+          .from('razorpay_orders')
+          .select('amount, original_price')
+          .eq('razorpay_order_id', orderId)
+          .maybeSingle();
+        if (ord?.original_price) packagePrice = Number(ord.original_price);
+        else if (ord?.amount) packagePrice = Number(ord.amount);
       } catch {}
     }
-    if (baseAmount <= 0) {
-      baseAmount = 599; // baseline only if absolutely zero
+
+    if (packagePrice <= 0) {
+      packagePrice = Number(originalPrice || paidAmount || 599);
     }
 
-    // 3. Determine dynamic commission rate percentage based on package & referral code rate
-    const referrerPkgRate = await getReferrerPackageCommissionRate(referrerId);
-    let ratePercent = Number(refInfo?.earningPercent || referrerPkgRate || purchasedPackage?.commission_rate || 60);
-    if (ratePercent < 10 || ratePercent > 95) ratePercent = 60;
+    // THE SMART WORTH REFERRAL MODEL:
+    // Fixed Company Share = 30%
+    // Allowed Referrer Earning: 51% to 70%
+    // Customer Discount = 70% - Referrer Earning
+    // (company_amount + referrer_commission = customer_payable_amount)
+    // (company_amount + referrer_commission + customer_discount_amount = package_price)
+    const companyPercent = 30;
+    let earningPercent = Number(refInfo?.earningPercent || 60);
+    if (!Number.isFinite(earningPercent) || earningPercent < 51 || earningPercent > 70) {
+      earningPercent = 60;
+    }
+    const customerDiscountPercent = 70 - earningPercent;
 
-    // 4. Calculate exact commission with Real Calculator: Math.round((baseAmount * ratePercent) / 100)
-    const commissionAmount = Math.max(1, Math.round((baseAmount * ratePercent) / 100));
+    const customerDiscountAmount = Math.round((packagePrice * customerDiscountPercent) / 100);
+    const customerPayableAmount = packagePrice - customerDiscountAmount;
+    const referrerCommission = Math.max(1, Math.round((packagePrice * earningPercent) / 100));
+    const companyAmount = customerPayableAmount - referrerCommission;
 
-    console.log(`[REAL CALCULATOR] User ${referrerId} credited ₹${commissionAmount} (${ratePercent}% of ₹${baseAmount}) for ${packageName} referral of ${referredName} (${referredUserId})`);
+    console.log(`[REAL DYNAMIC COMMISSION] Referrer ${referrerId} credited ₹${referrerCommission} (${earningPercent}% of ₹${packagePrice}) for ${packageName}. Customer Discount: ₹${customerDiscountAmount} (${customerDiscountPercent}%), Customer Payable: ₹${customerPayableAmount}, Company Share: ₹${companyAmount} (30%)`);
 
     // 1. Credit Referrer in Supabase profiles
     if (isSupabaseConfigured) {
@@ -1124,35 +1192,56 @@ const creditReferralCommissionForPurchase = async (params: {
           await supabaseAdmin
             .from('profiles')
             .update({
-              wallet_balance: currentBal + commissionAmount,
-              total_earned: currentTotal + commissionAmount,
-              approved_balance: currentApproved + commissionAmount
+              wallet_balance: currentBal + referrerCommission,
+              total_earned: currentTotal + referrerCommission,
+              approved_balance: currentApproved + referrerCommission
             })
             .eq('id', referrerId);
         }
 
-        // Record in referrals table with ALL fields
-        try {
-          await supabaseAdmin
-            .from('referrals')
-            .insert({
-              referrer_id: referrerId,
-              referred_id: referredUserId,
-              referred_user_id: referredUserId,
-              referred_email: referredEmail,
-              referral_code: referralCode || refInfo?.code || null,
-              package_id: packageId || null,
-              package_name: packageName,
-              order_id: orderId || null,
-              payment_id: paymentId || null,
-              amount: baseAmount,
-              rate_percent: ratePercent,
-              commission_amount: commissionAmount,
-              commission_earned: commissionAmount,
-              earning: commissionAmount,
-              status: 'completed'
-            });
-        } catch {}
+        // Record in referrals table with ALL snapshot columns
+        const referralPayload: Record<string, any> = {
+          referrer_id: referrerId,
+          referred_id: referredUserId,
+          referred_user_id: referredUserId,
+          referred_email: referredEmail,
+          referral_code: referralCode || refInfo?.code || null,
+          package_id: packageId || null,
+          package_name: packageName,
+          order_id: orderId || null,
+          payment_id: paymentId || null,
+          amount: packagePrice,
+          rate_percent: earningPercent,
+          commission_amount: referrerCommission,
+          commission_earned: referrerCommission,
+          earning: referrerCommission,
+          company_percent: companyPercent,
+          customer_discount_percent: customerDiscountPercent,
+          customer_payable_amount: customerPayableAmount,
+          company_amount: companyAmount,
+          status: 'completed'
+        };
+
+        const { error: insErr } = await supabaseAdmin.from('referrals').insert(referralPayload);
+        if (insErr) {
+          // Compatibility insert if newer columns not present
+          await supabaseAdmin.from('referrals').insert({
+            referrer_id: referrerId,
+            referred_id: referredUserId,
+            referred_user_id: referredUserId,
+            referred_email: referredEmail,
+            referral_code: referralCode || refInfo?.code || null,
+            package_id: packageId || null,
+            package_name: packageName,
+            order_id: orderId || null,
+            payment_id: paymentId || null,
+            amount: packagePrice,
+            rate_percent: earningPercent,
+            commission_amount: referrerCommission,
+            commission_earned: referrerCommission,
+            status: 'completed'
+          });
+        }
 
         // Record in transactions table for referrer
         try {
@@ -1160,11 +1249,11 @@ const creditReferralCommissionForPurchase = async (params: {
             .from('transactions')
             .insert({
               user_id: referrerId,
-              amount: commissionAmount,
+              amount: referrerCommission,
               type: 'credit',
               category: 'referral_commission',
               status: 'completed',
-              description: `Referral commission: ${ratePercent}% of ₹${baseAmount} on ${packageName} from ${referredName || referredEmail || 'student'}`,
+              description: `Referral commission: ${earningPercent}% of ₹${packagePrice} on ${packageName} from ${referredName || referredEmail || 'student'} (Company: 30%, Customer Discount: ${customerDiscountPercent}%)`,
               reference_id: orderId || paymentId || null
             });
         } catch {}
@@ -1183,7 +1272,8 @@ const creditReferralCommissionForPurchase = async (params: {
               .update({
                 enrollments: Number(codeRow.enrollments || 0) + 1,
                 usage_count: Number(codeRow.enrollments || 0) + 1,
-                total_earnings: Number(codeRow.total_earnings || 0) + commissionAmount
+                total_earnings: Number(codeRow.total_earnings || 0) + referrerCommission,
+                updated_at: new Date().toISOString()
               })
               .eq('id', codeRow.id);
           }
@@ -1196,9 +1286,9 @@ const creditReferralCommissionForPurchase = async (params: {
     // 2. In-memory / Fallback profile & tables update
     const memReferrer = fallbackProfiles.get(referrerId);
     if (memReferrer) {
-      memReferrer.wallet_balance = Number(memReferrer.wallet_balance || 0) + commissionAmount;
-      memReferrer.total_earned = Number(memReferrer.total_earned || 0) + commissionAmount;
-      memReferrer.approved_balance = Number(memReferrer.approved_balance || 0) + commissionAmount;
+      memReferrer.wallet_balance = Number(memReferrer.wallet_balance || 0) + referrerCommission;
+      memReferrer.total_earned = Number(memReferrer.total_earned || 0) + referrerCommission;
+      memReferrer.approved_balance = Number(memReferrer.approved_balance || 0) + referrerCommission;
       fallbackProfiles.set(referrerId, memReferrer);
       if (memReferrer.email) fallbackProfiles.set(memReferrer.email, memReferrer);
     }
@@ -1213,11 +1303,15 @@ const creditReferralCommissionForPurchase = async (params: {
       referral_code: referralCode || refInfo?.code || null,
       package_id: packageId || null,
       package_name: packageName,
-      amount: baseAmount,
-      rate_percent: ratePercent,
-      commission_amount: commissionAmount,
-      commission_earned: commissionAmount,
-      earning: commissionAmount,
+      amount: packagePrice,
+      rate_percent: earningPercent,
+      commission_amount: referrerCommission,
+      commission_earned: referrerCommission,
+      earning: referrerCommission,
+      company_percent: companyPercent,
+      customer_discount_percent: customerDiscountPercent,
+      customer_payable_amount: customerPayableAmount,
+      company_amount: companyAmount,
       order_id: orderId || null,
       payment_id: paymentId || null,
       status: 'completed',
@@ -1228,11 +1322,11 @@ const creditReferralCommissionForPurchase = async (params: {
     fbTx.unshift({
       id: crypto.randomUUID(),
       user_id: referrerId,
-      amount: commissionAmount,
+      amount: referrerCommission,
       type: 'credit',
       category: 'referral_commission',
       status: 'completed',
-      description: `Referral commission: ${ratePercent}% of ₹${baseAmount} on ${packageName} from ${referredName || referredEmail || 'student'}`,
+      description: `Referral commission: ${earningPercent}% of ₹${packagePrice} on ${packageName} from ${referredName || referredEmail || 'student'}`,
       reference_id: orderId || paymentId || null,
       created_at: new Date().toISOString()
     });
@@ -1334,7 +1428,9 @@ app.post('/api/signup', async (req, res, next) => {
       }
 
       const tswId = `TSW${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-      const myReferralCode = generateUniqueReferralCodeForUser(cleanEmail, authUser.id);
+      // Referral code is only issued if user has an active purchased package according to package & marketing rules
+      const hasPurchasedPackage = Boolean(package_id && package_id !== 'free' && package_id !== 'none');
+      const myReferralCode = hasPurchasedPackage ? generateUniqueReferralCodeForUser(cleanEmail, authUser.id) : null;
 
       // Resolve referral_code to referrer UUID if possible
       let resolvedReferrerId: string | null = null;
@@ -1358,7 +1454,7 @@ app.post('/api/signup', async (req, res, next) => {
         referred_by: resolvedReferrerId,
         referral_code: myReferralCode,
         tsw_id: tswId,
-        package_id: package_id || 'silver',
+        package_id: package_id || null,
         role: 'user',
         wallet_balance: 0,
         total_earned: 0,
@@ -1437,17 +1533,8 @@ app.post('/api/signup', async (req, res, next) => {
         }
       }
 
-      // Automatically credit commission to the referrer if this signup was referred
-      if (resolvedReferrerId) {
-        creditReferralCommissionForPurchase({
-          referredUserId: authUser.id,
-          referredEmail: cleanEmail,
-          referredName: full_name,
-          referralCode: cleanRef,
-          packageId: package_id,
-          paidAmount: 599
-        }).catch((err) => console.warn('[Auto-Credit Commission Warning]:', err));
-      }
+      // Referral link/code is stored in profile (referred_by).
+      // Commission is ONLY credited after payment is verified by the backend, NEVER merely on signup.
 
       // 3. Log them in to get a session
       let sessionDataObj: any = null;
@@ -2816,123 +2903,203 @@ app.get('/api/courses/:id/content', async (req, res) => {
 });
 
 // --- USER PROFILE & DASHBOARD ---
-app.get('/api/profile', verifyUser, async (req, res) => {
-  const user = (req as any).user;
-  const memProfile = fallbackProfiles.get(user.id) || fallbackProfiles.get(user.email) || {};
-  if (isSupabaseConfigured) {
-    const { data: profile } = await supabaseAdmin.from('profiles').select('*').eq('id', user.id).maybeSingle();
-    let authMeta = user.user_metadata || {};
-    try {
-      const { data: au } = await supabaseAdmin.auth.admin.getUserById(user.id);
-      if (au?.user?.user_metadata) {
-        authMeta = { ...authMeta, ...au.user.user_metadata };
-      }
-    } catch {}
-    const banCheck = await evaluateUserBanState(user.id, String(user.email || '').trim().toLowerCase(), profile, authMeta);
-    if (profile) {
-      let activeRefCode = profile.referral_code || memProfile.referral_code;
-      if (!activeRefCode) {
-        activeRefCode = generateUniqueReferralCodeForUser(user.email, user.id);
-        if (isSupabaseConfigured) {
-          void Promise.resolve(supabaseAdmin.from('profiles').update({ referral_code: activeRefCode }).eq('id', user.id)).catch(() => {});
-        }
-      }
-      return res.json({
-        ...memProfile,
-        ...profile,
-        referral_code: activeRefCode,
-        full_name: memProfile.full_name || profile.full_name || authMeta?.full_name || user.email?.split('@')[0] || 'Student',
-        mobile: memProfile.mobile || profile.mobile || profile.phone || authMeta?.mobile || '',
-        profile_pic: memProfile.profile_pic || profile.profile_pic || profile.avatar_url || authMeta?.profile_pic || '',
-        bio: memProfile.bio ?? profile.bio ?? '',
-        is_banned: banCheck.is_banned,
-        ban_type: banCheck.ban_details?.ban_type || null,
-        ban_reason: banCheck.ban_details?.ban_reason || null,
-        banned_at: banCheck.ban_details?.banned_at || null,
-        ban_until: banCheck.ban_details?.ban_until || null,
-        ban_details: banCheck.ban_details || null,
-        created_at: profile.created_at || user.created_at || memProfile.created_at || new Date().toISOString()
-      });
-    }
-  }
-  const fallback = {
-    id: user.id,
-    email: user.email,
-    full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Student',
-    package_id: 'silver',
-    role: user.role || 'user',
-    wallet_balance: 0,
-    total_earned: 0,
-    approved_balance: 0,
-    pending_balance: 0,
-    referral_code: memProfile.referral_code || generateUniqueReferralCodeForUser(user.email, user.id),
-    created_at: user.created_at || new Date().toISOString(),
-    ...memProfile
-  };
-  res.json(fallback);
-});
-
-app.get('/api/profile/:id', verifyUser, async (req, res, next) => {
+app.get('/api/profile', async (req, res) => {
   try {
-    const { id } = req.params;
-    const user = (req as any).user;
+    const user = await getOptionalUser(req);
+    const userId = user?.id || String(req.headers['x-user-id'] || '').trim();
+    const userEmail = user?.email || String(req.headers['x-user-email'] || '').trim().toLowerCase();
 
-    const memProfile = fallbackProfiles.get(id) || (id === user.id ? fallbackProfiles.get(user.email) : undefined) || {};
+    if (!userId && !userEmail) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
 
+    const memProfile = (userId && fallbackProfiles.get(userId)) || (userEmail && fallbackProfiles.get(userEmail)) || {};
     if (isSupabaseConfigured) {
-      const { data, error } = await supabaseAdmin.from('profiles').select('*').eq('id', id).maybeSingle();
-      let authMeta = id === user.id ? (user.user_metadata || {}) : {};
       try {
-        const { data: au } = await supabaseAdmin.auth.admin.getUserById(id);
-        if (au?.user?.user_metadata) {
-          authMeta = { ...authMeta, ...au.user.user_metadata };
-        }
-      } catch {}
-      const cleanEm = String(data?.email || memProfile?.email || (id === user.id ? user.email : '') || '').trim().toLowerCase();
-      const banCheck = await evaluateUserBanState(id, cleanEm, data, authMeta);
+        let profQuery = supabaseAdmin.from('profiles').select('*');
+        const { data: profile } = userId
+          ? await profQuery.eq('id', userId).maybeSingle()
+          : await profQuery.eq('email', userEmail).maybeSingle();
 
-      if (!error && data) {
-        let activeRefCode = data.referral_code || memProfile.referral_code;
-        if (!activeRefCode) {
-          activeRefCode = generateUniqueReferralCodeForUser(cleanEm, id);
-          void Promise.resolve(supabaseAdmin.from('profiles').update({ referral_code: activeRefCode }).eq('id', id)).catch(() => {});
+        let authMeta = user?.user_metadata || {};
+        if (userId) {
+          try {
+            const { data: au } = await supabaseAdmin.auth.admin.getUserById(userId);
+            if (au?.user?.user_metadata) {
+              authMeta = { ...authMeta, ...au.user.user_metadata };
+            }
+          } catch {}
         }
-        return res.json({
-          ...memProfile,
-          ...data,
-          referral_code: activeRefCode,
-          full_name: memProfile.full_name || data.full_name || authMeta?.full_name || data.email?.split('@')[0] || 'Student',
-          mobile: memProfile.mobile || data.mobile || data.phone || authMeta?.mobile || '',
-          profile_pic: memProfile.profile_pic || data.profile_pic || data.avatar_url || authMeta?.profile_pic || '',
-          bio: memProfile.bio ?? data.bio ?? '',
-          is_banned: banCheck.is_banned,
-          ban_type: banCheck.ban_details?.ban_type || null,
-          ban_reason: banCheck.ban_details?.ban_reason || null,
-          banned_at: banCheck.ban_details?.banned_at || null,
-          ban_until: banCheck.ban_details?.ban_until || null,
-          ban_details: banCheck.ban_details || null,
-          created_at: data.created_at || (id === user.id ? user.created_at : undefined) || memProfile.created_at || new Date().toISOString()
-        });
+        const cleanEm = String(profile?.email || userEmail || memProfile?.email || '').trim().toLowerCase();
+        const banCheck = await evaluateUserBanState(userId || profile?.id || 'user', cleanEm, profile, authMeta);
+        if (profile) {
+          let activeRefCode = profile.referral_code || memProfile.referral_code;
+          if (!activeRefCode) {
+            activeRefCode = generateUniqueReferralCodeForUser(cleanEm, profile.id);
+            void Promise.resolve(supabaseAdmin.from('profiles').update({ referral_code: activeRefCode }).eq('id', profile.id)).catch(() => {});
+          }
+          return res.json({
+            ...memProfile,
+            ...profile,
+            referral_code: activeRefCode,
+            full_name: memProfile.full_name || profile.full_name || authMeta?.full_name || cleanEm?.split('@')[0] || 'Student',
+            mobile: memProfile.mobile || profile.mobile || profile.phone || authMeta?.mobile || '',
+            profile_pic: memProfile.profile_pic || profile.profile_pic || profile.avatar_url || authMeta?.profile_pic || '',
+            bio: memProfile.bio ?? profile.bio ?? '',
+            is_banned: banCheck.is_banned,
+            ban_type: banCheck.ban_details?.ban_type || null,
+            ban_reason: banCheck.ban_details?.ban_reason || null,
+            banned_at: banCheck.ban_details?.banned_at || null,
+            ban_until: banCheck.ban_details?.ban_until || null,
+            ban_details: banCheck.ban_details || null,
+            created_at: profile.created_at || user?.created_at || memProfile.created_at || new Date().toISOString()
+          });
+        }
+      } catch (dbErr) {
+        console.warn('[Profile /api/profile DB Warning]:', dbErr);
       }
     }
 
     const fallback = {
-      id,
-      email: user.email,
-      full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Student',
-      package_id: 'silver',
-      role: user.role || 'user',
+      id: userId || 'user',
+      email: userEmail,
+      full_name: user?.user_metadata?.full_name || memProfile?.full_name || userEmail?.split('@')[0] || 'Student',
+      package_id: memProfile?.package_id || 'silver',
+      role: user?.role || memProfile?.role || 'user',
+      wallet_balance: Number(memProfile?.wallet_balance || 0),
+      total_earned: Number(memProfile?.total_earned || 0),
+      approved_balance: Number(memProfile?.approved_balance || 0),
+      pending_balance: Number(memProfile?.pending_balance || 0),
+      referral_code: memProfile?.referral_code || generateUniqueReferralCodeForUser(userEmail, userId),
+      created_at: user?.created_at || memProfile?.created_at || new Date().toISOString(),
+      ...memProfile
+    };
+    return res.json(fallback);
+  } catch (err) {
+    console.error('[/api/profile Unexpected Error]:', err);
+    return res.json({
+      id: 'user',
+      full_name: 'Student',
+      email: '',
       wallet_balance: 0,
       total_earned: 0,
       approved_balance: 0,
       pending_balance: 0,
-      referral_code: memProfile.referral_code || generateUniqueReferralCodeForUser(user.email, id),
-      created_at: user.created_at || new Date().toISOString(),
+      role: 'user',
+      package_id: 'silver'
+    });
+  }
+});
+
+app.get('/api/profile/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await getOptionalUser(req);
+
+    const memProfile =
+      fallbackProfiles.get(id) ||
+      (user && id === user.id ? fallbackProfiles.get(user.email) : undefined) ||
+      {};
+
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabaseAdmin.from('profiles').select('*').eq('id', id).maybeSingle();
+        let authMeta = user && id === user.id ? (user.user_metadata || {}) : {};
+        let authUserEmail = '';
+        try {
+          const { data: au } = await supabaseAdmin.auth.admin.getUserById(id);
+          if (au?.user) {
+            authUserEmail = au.user.email || '';
+            if (au.user.user_metadata) {
+              authMeta = { ...authMeta, ...au.user.user_metadata };
+            }
+          }
+        } catch {}
+
+        const cleanEm = String(data?.email || authUserEmail || memProfile?.email || (user && id === user.id ? user.email : '') || '').trim().toLowerCase();
+        const banCheck = await evaluateUserBanState(id, cleanEm, data, authMeta);
+
+        if (!error && data) {
+          let activeRefCode = data.referral_code || memProfile.referral_code;
+          if (!activeRefCode) {
+            activeRefCode = generateUniqueReferralCodeForUser(cleanEm, id);
+            void Promise.resolve(supabaseAdmin.from('profiles').update({ referral_code: activeRefCode }).eq('id', id)).catch(() => {});
+          }
+          return res.json({
+            ...memProfile,
+            ...data,
+            referral_code: activeRefCode,
+            full_name: memProfile.full_name || data.full_name || authMeta?.full_name || cleanEm?.split('@')[0] || 'Student',
+            mobile: memProfile.mobile || data.mobile || data.phone || authMeta?.mobile || '',
+            profile_pic: memProfile.profile_pic || data.profile_pic || data.avatar_url || authMeta?.profile_pic || '',
+            bio: memProfile.bio ?? data.bio ?? '',
+            is_banned: banCheck.is_banned,
+            ban_type: banCheck.ban_details?.ban_type || null,
+            ban_reason: banCheck.ban_details?.ban_reason || null,
+            banned_at: banCheck.ban_details?.banned_at || null,
+            ban_until: banCheck.ban_details?.ban_until || null,
+            ban_details: banCheck.ban_details || null,
+            created_at: data.created_at || (user && id === user.id ? user.created_at : undefined) || memProfile.created_at || new Date().toISOString()
+          });
+        }
+
+        // Auto-provision profile row if user exists in auth
+        if (authUserEmail) {
+          const autoRefCode = memProfile.referral_code || generateUniqueReferralCodeForUser(authUserEmail, id);
+          const autoProfile = {
+            id,
+            email: authUserEmail,
+            full_name: authMeta?.full_name || authUserEmail.split('@')[0] || 'Student',
+            role: 'user',
+            package_id: 'silver',
+            wallet_balance: Number(memProfile.wallet_balance || 0),
+            total_earned: Number(memProfile.total_earned || 0),
+            approved_balance: Number(memProfile.approved_balance || 0),
+            pending_balance: Number(memProfile.pending_balance || 0),
+            referral_code: autoRefCode
+          };
+          void Promise.resolve(supabaseAdmin.from('profiles').upsert(autoProfile)).catch(() => {});
+          return res.json({
+            ...autoProfile,
+            is_banned: false,
+            ban_details: null,
+            created_at: new Date().toISOString()
+          });
+        }
+      } catch (dbErr) {
+        console.warn('[Profile /api/profile/:id DB Warning]:', dbErr);
+      }
+    }
+
+    const fallbackEmail = user?.email || memProfile?.email || '';
+    const fallback = {
+      id,
+      email: fallbackEmail,
+      full_name: user?.user_metadata?.full_name || memProfile?.full_name || fallbackEmail?.split('@')[0] || 'Student',
+      package_id: memProfile?.package_id || 'silver',
+      role: user?.role || memProfile?.role || 'user',
+      wallet_balance: Number(memProfile?.wallet_balance || 0),
+      total_earned: Number(memProfile?.total_earned || 0),
+      approved_balance: Number(memProfile?.approved_balance || 0),
+      pending_balance: Number(memProfile?.pending_balance || 0),
+      referral_code: memProfile?.referral_code || generateUniqueReferralCodeForUser(fallbackEmail, id),
+      created_at: user?.created_at || memProfile?.created_at || new Date().toISOString(),
       ...memProfile
     };
-    res.json(fallback);
+    return res.json(fallback);
   } catch (error) {
-    next(error);
+    console.error('[/api/profile/:id Unexpected Error]:', error);
+    return res.json({
+      id: req.params?.id || 'user',
+      full_name: 'Student',
+      email: '',
+      wallet_balance: 0,
+      total_earned: 0,
+      approved_balance: 0,
+      pending_balance: 0,
+      role: 'user',
+      package_id: 'silver'
+    });
   }
 });
 
@@ -4293,11 +4460,39 @@ app.get('/api/validate-referral', async (req, res) => {
 
   const refInfo = await resolveReferralCodeInfo(code);
   if (refInfo) {
+    const earningPercent = Math.min(70, Math.max(51, Math.round(refInfo.earningPercent || 60)));
+    const discountPercent = 70 - earningPercent;
+    const companyPercent = 30;
+
+    const pkgId = req.query.package_id || req.query.packageId;
+    let packagePrice = 0;
+    let discountAmount = 0;
+    let payableAmount = 0;
+    let referrerCommission = 0;
+    let companyAmount = 0;
+
+    if (pkgId) {
+      const pkgDetails = await getPackageDetailsById(String(pkgId));
+      if (pkgDetails) {
+        packagePrice = Number(pkgDetails.price || pkgDetails.offer_price || pkgDetails.original_price || 0);
+        discountAmount = Math.round((packagePrice * discountPercent) / 100);
+        payableAmount = packagePrice - discountAmount;
+        referrerCommission = Math.round((packagePrice * earningPercent) / 100);
+        companyAmount = payableAmount - referrerCommission;
+      }
+    }
+
     return res.json({
       code: refInfo.code,
       user_id: refInfo.userId,
-      discount_percent: refInfo.discountPercent,
-      earning_percent: refInfo.earningPercent
+      company_percent: companyPercent,
+      earning_percent: earningPercent,
+      discount_percent: discountPercent,
+      package_price: packagePrice,
+      discount_amount: discountAmount,
+      customer_payable_amount: payableAmount,
+      referrer_commission: referrerCommission,
+      company_amount: companyAmount
     });
   }
 
@@ -4352,16 +4547,13 @@ app.get('/api/referral-codes/:userId', verifyUser, async (req, res) => {
   // Check package eligibility: user must have an active paid package to access referral program
   const isPackageEnrolled = Boolean(userPackageId && userPackageId !== 'free' && userPackageId !== 'none');
   if (!isPackageEnrolled && !userDefaultCode) {
-    // Free or un-enrolled members do not receive active referral codes
     return res.json([]);
   }
 
-  // Get dynamic commission percentage according to the user's active package tier
   const dynamicPackageRate = await getReferrerPackageCommissionRate(userId);
 
   if (isSupabaseConfigured) {
     try {
-      // Look up custom codes by user_id OR creator_id
       const { data: codes } = await supabaseAdmin
         .from('referral_codes')
         .select('*')
@@ -4377,15 +4569,19 @@ app.get('/api/referral-codes/:userId', verifyUser, async (req, res) => {
           codeSet.add(upCode);
 
           const fb = fbByCode.get(upCode);
-          const earn = Number(c.earning_percent ?? c.commission ?? fb?.earning_percent ?? dynamicPackageRate);
-          const disc = Number(c.discount_percent ?? c.discount ?? fb?.discount_percent ?? Math.max(5, Math.min(20, 100 - earn)));
+          let earn = Number(c.earning_percent ?? fb?.earning_percent ?? dynamicPackageRate);
+          if (!Number.isFinite(earn) || earn < 51 || earn > 70) earn = 60;
+          const disc = 70 - earn;
+
           userCodes.push({
             ...c,
             id: c.id,
             user_id: userId,
+            creator_id: userId,
             code: upCode,
-            discount_percent: disc,
+            company_percent: 30,
             earning_percent: earn,
+            discount_percent: disc,
             clicks: Number(c.clicks ?? fb?.clicks ?? 0),
             enrollments: Number(c.enrollments ?? c.usage_count ?? fb?.enrollments ?? 0),
             usage_count: Number(c.usage_count ?? c.enrollments ?? 0),
@@ -4394,23 +4590,32 @@ app.get('/api/referral-codes/:userId', verifyUser, async (req, res) => {
         });
       }
 
-      // Add in-memory custom codes if not already included
       fbCodes.forEach((f: any) => {
         const upCode = String(f.code).toUpperCase();
         if (!codeSet.has(upCode)) {
           codeSet.add(upCode);
-          userCodes.push(f);
+          let earn = Number(f.earning_percent ?? dynamicPackageRate);
+          if (!Number.isFinite(earn) || earn < 51 || earn > 70) earn = 60;
+          userCodes.push({
+            ...f,
+            company_percent: 30,
+            earning_percent: earn,
+            discount_percent: 70 - earn
+          });
         }
       });
 
-      // Always include user's main default referral code if not already listed
       if (userDefaultCode && !codeSet.has(userDefaultCode.toUpperCase())) {
+        let defEarn = dynamicPackageRate;
+        if (!Number.isFinite(defEarn) || defEarn < 51 || defEarn > 70) defEarn = 60;
         userCodes.unshift({
           id: `main-${userId}`,
           user_id: userId,
+          creator_id: userId,
           code: userDefaultCode.toUpperCase(),
-          discount_percent: 10,
-          earning_percent: dynamicPackageRate,
+          company_percent: 30,
+          earning_percent: defEarn,
+          discount_percent: 70 - defEarn,
           clicks: 0,
           enrollments: 0,
           usage_count: 0,
@@ -4427,13 +4632,17 @@ app.get('/api/referral-codes/:userId', verifyUser, async (req, res) => {
 
   if (fbCodes.length > 0) return res.json(fbCodes);
   if (userDefaultCode) {
+    let defEarn = dynamicPackageRate;
+    if (!Number.isFinite(defEarn) || defEarn < 51 || defEarn > 70) defEarn = 60;
     return res.json([
       {
         id: `main-${userId}`,
         user_id: userId,
+        creator_id: userId,
         code: userDefaultCode.toUpperCase(),
-        discount_percent: 10,
-        earning_percent: dynamicPackageRate,
+        company_percent: 30,
+        earning_percent: defEarn,
+        discount_percent: 70 - defEarn,
         clicks: 0,
         enrollments: 0,
         is_default: true
@@ -4447,37 +4656,62 @@ app.post('/api/referral-codes', verifyUser, async (req, res) => {
   const user = (req as any).user;
   const codeStr = String(req.body.code || '').toUpperCase().trim().replace(/[^A-Z0-9_-]/g, '');
   if (!codeStr || codeStr.length < 3) {
-    return res.status(400).json({ error: 'Code must be at least 3 alphanumeric characters' });
+    return res.status(400).json({ error: 'Referral code must be at least 3 alphanumeric characters' });
   }
 
-  // Dynamic commission rate based on user's active package tier
-  const dynamicPackageRate = await getReferrerPackageCommissionRate(user.id);
-  const discountPercent = Math.min(20, Math.max(5, Number(req.body.discount_percent ?? 10)));
-  const earningPercent = Math.min(85, Math.max(30, Number(req.body.earning_percent ?? dynamicPackageRate)));
+  // BUSINESS MODEL RULE (Strict backend validation):
+  // Allowed referrer earning: integer from 51% to 70%
+  // Company share: FIXED 30%
+  // Customer discount: 70% - referrer earning
+  const rawEarning = Number(req.body.earning_percent ?? (70 - Number(req.body.discount_percent ?? 10)));
+  const earningPercent = Math.round(rawEarning);
 
-  // Check if code is already taken by someone else
+  if (isNaN(earningPercent) || earningPercent < 51 || earningPercent > 70) {
+    return res.status(400).json({
+      error: 'Invalid referrer earning percentage. Allowed range is 51% to 70%.'
+    });
+  }
+
+  const companyPercent = 30;
+  const discountPercent = 70 - earningPercent;
+
+  if (companyPercent + earningPercent + discountPercent !== 100) {
+    return res.status(400).json({
+      error: 'Invalid percentage combination. Company share (30%) + Referrer Earning + Customer Discount must equal 100%.'
+    });
+  }
+
+  // Prevent code hijacking: referral code must belong to authenticated user
+  const isPlatformAdmin = Boolean(
+    ADMIN_EMAIL_SET.has(String(user.email || '').trim().toLowerCase()) ||
+    user.role === 'admin' ||
+    user.role === 'owner'
+  );
+
   const existingRef = await resolveReferralCodeInfo(codeStr);
-  if (existingRef && String(existingRef.userId) !== String(user.id)) {
-    return res.status(400).json({ error: `Referral code "${codeStr}" is already in use by another member. Please pick another!` });
+  if (existingRef && String(existingRef.userId) !== String(user.id) && !isPlatformAdmin) {
+    return res.status(400).json({ error: `Referral code "${codeStr}" is already registered by another member. Please choose another code.` });
   }
 
   const newCodeObj: any = {
     id: crypto.randomUUID(),
+    creator_id: user.id,
     user_id: user.id,
     code: codeStr,
-    discount_percent: discountPercent,
+    company_percent: companyPercent,
     earning_percent: earningPercent,
+    discount_percent: discountPercent,
     is_active: true,
     clicks: 0,
     enrollments: 0,
     usage_count: 0,
     total_earnings: 0,
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
   };
 
   if (isSupabaseConfigured) {
     try {
-      // First check if this user already has this code row to update
       const { data: existingRow } = await supabaseAdmin
         .from('referral_codes')
         .select('id')
@@ -4488,15 +4722,23 @@ app.post('/api/referral-codes', verifyUser, async (req, res) => {
         const { data: updated, error: updErr } = await supabaseAdmin
           .from('referral_codes')
           .update({
+            creator_id: user.id,
+            user_id: user.id,
+            company_percent: companyPercent,
             earning_percent: earningPercent,
-            is_active: true
+            discount_percent: discountPercent,
+            is_active: true,
+            updated_at: new Date().toISOString()
           })
           .eq('id', existingRow.id)
           .select()
           .maybeSingle();
 
         if (!updErr && updated) {
-          const merged = { ...newCodeObj, ...updated, user_id: user.id, discount_percent: discountPercent, earning_percent: earningPercent };
+          const merged = { ...newCodeObj, ...updated, user_id: user.id, creator_id: user.id, company_percent: companyPercent, discount_percent: discountPercent, earning_percent: earningPercent };
+          const fb = getFallbackTable('referral_codes').filter((c: any) => String(c.code).toUpperCase() !== codeStr);
+          fb.unshift(merged);
+          fallbackTables.set('referral_codes', fb);
           return res.json(merged);
         }
       } else {
@@ -4504,17 +4746,23 @@ app.post('/api/referral-codes', verifyUser, async (req, res) => {
           .from('referral_codes')
           .insert({
             creator_id: user.id,
+            user_id: user.id,
             code: codeStr,
+            company_percent: companyPercent,
             earning_percent: earningPercent,
+            discount_percent: discountPercent,
             is_active: true,
             clicks: 0,
-            enrollments: 0
+            enrollments: 0,
+            total_earnings: 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
           })
           .select()
           .maybeSingle();
 
         if (!insErr && inserted) {
-          const merged = { ...newCodeObj, ...inserted, user_id: user.id, discount_percent: discountPercent, earning_percent: earningPercent };
+          const merged = { ...newCodeObj, ...inserted, user_id: user.id, creator_id: user.id, company_percent: companyPercent, discount_percent: discountPercent, earning_percent: earningPercent };
           const fb = getFallbackTable('referral_codes').filter((c: any) => String(c.code).toUpperCase() !== codeStr);
           fb.unshift(merged);
           fallbackTables.set('referral_codes', fb);
@@ -4954,9 +5202,16 @@ app.get('/api/admin/referral-tracker/details/:code', verifyAdmin, async (req, re
       const studentProf = studentProfilesMap.get(sId) || fallbackProfiles.get(sId) || {};
       const pkg = await getPackageDetailsById(r.package_id || studentProf.package_id);
 
-      const paidAmount = Number(r.amount || pkg?.offer_price || pkg?.price || 599);
-      const ratePct = Number(r.rate_percent || refInfo?.earningPercent || 60);
-      const commissionCredit = Number(r.commission_amount || r.commission_earned || r.earning || Math.round((paidAmount * ratePct) / 100));
+      const pkgPrice = Number(r.amount || pkg?.price || pkg?.offer_price || pkg?.original_price || 599);
+      let ratePct = Number(r.rate_percent || refInfo?.earningPercent || 60);
+      if (!Number.isFinite(ratePct) || ratePct < 51 || ratePct > 70) ratePct = 60;
+      const discPct = Number(r.customer_discount_percent ?? (70 - ratePct));
+      const compPct = 30;
+
+      const customerDiscAmount = Number(r.customer_discount_amount ?? Math.round((pkgPrice * discPct) / 100));
+      const customerPayable = Number(r.customer_payable_amount ?? (pkgPrice - customerDiscAmount));
+      const commAmount = Number(r.commission_amount || r.commission_earned || r.earning || Math.round((pkgPrice * ratePct) / 100));
+      const compAmount = Number(r.company_amount ?? (customerPayable - commAmount));
 
       seenStudentIds.add(sId);
 
@@ -4969,9 +5224,15 @@ app.get('/api/admin/referral-tracker/details/:code', verifyAdmin, async (req, re
         registered_at: r.created_at || studentProf.created_at || new Date().toISOString(),
         package_id: r.package_id || studentProf.package_id || 'package',
         package_name: r.package_name || pkg?.name || studentProf.package_id || 'Learning Package',
-        amount_paid: paidAmount,
+        original_amount: pkgPrice,
+        customer_discount_percent: discPct,
+        customer_discount_amount: customerDiscAmount,
+        customer_payable_amount: customerPayable,
+        amount_paid: customerPayable,
+        company_percent: compPct,
+        company_amount: compAmount,
         rate_percent: ratePct,
-        commission_credited: commissionCredit,
+        commission_credited: commAmount,
         order_id: r.order_id || 'N/A',
         payment_id: r.payment_id || 'N/A',
         status: r.status || 'completed'
@@ -4984,9 +5245,16 @@ app.get('/api/admin/referral-tracker/details/:code', verifyAdmin, async (req, re
       if (!seenStudentIds.has(sId)) {
         seenStudentIds.add(sId);
         const pkg = await getPackageDetailsById(p.package_id);
-        const paidAmount = Number(pkg?.offer_price || pkg?.price || 599);
-        const ratePct = Number(refInfo?.earningPercent || 60);
-        const commissionCredit = Math.round((paidAmount * ratePct) / 100);
+        const pkgPrice = Number(pkg?.price || pkg?.offer_price || pkg?.original_price || 599);
+        let ratePct = Number(refInfo?.earningPercent || 60);
+        if (!Number.isFinite(ratePct) || ratePct < 51 || ratePct > 70) ratePct = 60;
+        const discPct = 70 - ratePct;
+        const compPct = 30;
+
+        const customerDiscAmount = Math.round((pkgPrice * discPct) / 100);
+        const customerPayable = pkgPrice - customerDiscAmount;
+        const commAmount = Math.round((pkgPrice * ratePct) / 100);
+        const compAmount = customerPayable - commAmount;
 
         registeredStudents.push({
           id: sId,
@@ -4997,9 +5265,15 @@ app.get('/api/admin/referral-tracker/details/:code', verifyAdmin, async (req, re
           registered_at: p.created_at || new Date().toISOString(),
           package_id: p.package_id || 'package',
           package_name: pkg?.name || p.package_id || 'Learning Package',
-          amount_paid: paidAmount,
+          original_amount: pkgPrice,
+          customer_discount_percent: discPct,
+          customer_discount_amount: customerDiscAmount,
+          customer_payable_amount: customerPayable,
+          amount_paid: customerPayable,
+          company_percent: compPct,
+          company_amount: compAmount,
           rate_percent: ratePct,
-          commission_credited: commissionCredit,
+          commission_credited: commAmount,
           order_id: 'DIRECT_SIGNUP',
           payment_id: 'VERIFIED',
           status: 'completed'
@@ -5011,19 +5285,24 @@ app.get('/api/admin/referral-tracker/details/:code', verifyAdmin, async (req, re
     registeredStudents.sort((a, b) => new Date(b.registered_at).getTime() - new Date(a.registered_at).getTime());
 
     // Compute real calculator breakdown
-    const totalVolume = registeredStudents.reduce((acc, curr) => acc + curr.amount_paid, 0);
+    const totalOriginalVolume = registeredStudents.reduce((acc, curr) => acc + (curr.original_amount || curr.amount_paid), 0);
+    const totalCustomerPaid = registeredStudents.reduce((acc, curr) => acc + curr.amount_paid, 0);
     const totalCommission = registeredStudents.reduce((acc, curr) => acc + curr.commission_credited, 0);
-    const avgOrderVal = registeredStudents.length > 0 ? Math.round(totalVolume / registeredStudents.length) : 0;
+    const totalCompanyShare = registeredStudents.reduce((acc, curr) => acc + curr.company_amount, 0);
+    const totalDiscountAmount = registeredStudents.reduce((acc, curr) => acc + curr.customer_discount_amount, 0);
+
+    const avgOrderVal = registeredStudents.length > 0 ? Math.round(totalCustomerPaid / registeredStudents.length) : 0;
     const avgCommission = registeredStudents.length > 0 ? Math.round(totalCommission / registeredStudents.length) : 0;
 
     const result = {
       code_info: {
         code: rawCode,
-        discount_percent: refInfo?.discountPercent || 10,
+        discount_percent: refInfo?.discountPercent || (70 - (refInfo?.earningPercent || 60)),
         earning_percent: refInfo?.earningPercent || 60,
+        company_percent: 30,
         clicks: 0,
         conversions: registeredStudents.length,
-        total_sales: totalVolume,
+        total_sales: totalCustomerPaid,
         total_commission: totalCommission,
         is_active: true
       },
@@ -5043,12 +5322,17 @@ app.get('/api/admin/referral-tracker/details/:code', verifyAdmin, async (req, re
       referred_users: registeredStudents,
       calculator_breakdown: {
         total_conversions: registeredStudents.length,
-        total_sales_volume: totalVolume,
+        total_original_package_volume: totalOriginalVolume,
+        total_customer_paid_volume: totalCustomerPaid,
+        total_company_share_credited: totalCompanyShare,
         total_commission_credited: totalCommission,
+        total_discount_given: totalDiscountAmount,
         average_order_value: avgOrderVal,
         average_commission_per_conversion: avgCommission,
         rate_percent: refInfo?.earningPercent || 60,
-        formula: `Commission = Math.round((Paid Amount * ${refInfo?.earningPercent || 60}%) / 100)`
+        company_percent: 30,
+        customer_discount_percent: refInfo?.discountPercent || (70 - (refInfo?.earningPercent || 60)),
+        formula: `Original Package Price = Company Share (30%) + Referrer Commission (${refInfo?.earningPercent || 60}%) + Customer Discount (${70 - (refInfo?.earningPercent || 60)}%)`
       }
     };
 
@@ -6294,27 +6578,44 @@ const handleCreateOrder = async (req: Request, res: Response, next: NextFunction
     const refCode = referralCode || referral_code || null;
     const userEmail = String(email || user?.email || 'guest@thesmartworth.site').trim().toLowerCase();
 
-    let pkg: any = null;
-    if (isSupabaseConfigured) {
-      const { data } = await supabaseAdmin.from('packages').select('*').eq('id', pkgId).maybeSingle();
-      pkg = data;
-    }
+    // 1. DYNAMIC PACKAGE PRICE: Always fetch actual package price from public.packages table
+    let pkg = await getPackageDetailsById(pkgId);
     if (!pkg) {
       pkg = DEFAULT_PACKAGES.find(p => String(p.id) === String(pkgId)) || DEFAULT_PACKAGES[0];
     }
 
-    let finalAmount = Number(amount || 0);
-    if (!finalAmount) {
-      finalAmount = Number(pkg?.offer_price || pkg?.price || 599);
+    const packagePrice = Number(pkg?.price || pkg?.offer_price || pkg?.original_price || 599);
+    const resolvedPackageName = packageName || package_name || pkg?.name || 'VIP Learning Package';
+
+    // 2. THE SMART WORTH REFERRAL FORMULA:
+    // Company: fixed 30%
+    // Referrer Earning: 51% to 70%
+    // Customer Discount: 70% - Referrer Earning
+    // (company_amount + referrer_commission = customer_payable_amount)
+    // (company_amount + referrer_commission + customer_discount_amount = package_price)
+    const companyPercent = 30;
+    let earningPercent = 60;
+    let customerDiscountPercent = 0;
+    let customerDiscountAmount = 0;
+    let customerPayableAmount = packagePrice;
+    let referrerCommission = 0;
+    let companyAmount = packagePrice;
+
+    if (refCode) {
+      const refInfo = await resolveReferralCodeInfo(refCode);
+      if (refInfo) {
+        earningPercent = Math.min(70, Math.max(51, Math.round(refInfo.earningPercent || 60)));
+        customerDiscountPercent = 70 - earningPercent;
+        customerDiscountAmount = Math.round((packagePrice * customerDiscountPercent) / 100);
+        customerPayableAmount = packagePrice - customerDiscountAmount;
+        referrerCommission = Math.round((packagePrice * earningPercent) / 100);
+        companyAmount = customerPayableAmount - referrerCommission;
+      }
     }
 
-    const resolvedOriginalPrice = Number(
-      originalPrice || original_price || pkg?.original_price || pkg?.originalPrice || pkg?.price || finalAmount
-    );
-    const resolvedDiscount = Number(
-      discountAmount ?? discount_amount ?? Math.max(0, resolvedOriginalPrice - finalAmount)
-    );
-    const resolvedPackageName = packageName || package_name || pkg?.name || 'VIP Learning Package';
+    const finalAmount = customerPayableAmount;
+    const resolvedOriginalPrice = packagePrice;
+    const resolvedDiscount = customerDiscountAmount;
 
     const amountInPaise = Math.max(100, Math.round(finalAmount * 100));
 
@@ -6393,6 +6694,13 @@ const handleCreateOrder = async (req: Request, res: Response, next: NextFunction
               amount: finalAmount,
               status: 'created',
               referral_code: refCode,
+              company_percent: companyPercent,
+              earning_percent: earningPercent,
+              customer_discount_percent: customerDiscountPercent,
+              customer_discount_amount: customerDiscountAmount,
+              customer_payable_amount: customerPayableAmount,
+              company_amount: companyAmount,
+              referrer_commission: referrerCommission,
               is_pre_signup: Boolean(is_pre_signup)
             });
             if (insErr) {
@@ -6868,11 +7176,48 @@ app.get('/api/payment/status/:orderId', async (req: Request, res: Response) => {
           razorpay_signature: signature
         };
         if (resolvedEmail) updatePayload.email = resolvedEmail;
-        await supabaseAdmin
+        const { data: updatedOrd } = await supabaseAdmin
           .from('razorpay_orders')
           .update(updatePayload)
-          .eq('razorpay_order_id', orderId);
+          .eq('razorpay_order_id', orderId)
+          .select()
+          .maybeSingle();
+
+        if (updatedOrd?.user_id && updatedOrd?.package_id) {
+          await supabaseAdmin.from('profiles').update({ package_id: updatedOrd.package_id }).eq('id', updatedOrd.user_id);
+          await supabaseAdmin.from('enrollments').upsert({
+            user_id: updatedOrd.user_id,
+            package_id: updatedOrd.package_id,
+            status: 'active'
+          });
+
+          if (updatedOrd.referral_code) {
+            creditReferralCommissionForPurchase({
+              referredUserId: updatedOrd.user_id,
+              referredEmail: updatedOrd.email || resolvedEmail,
+              referredName: updatedOrd.customer_name || resolvedName,
+              referralCode: updatedOrd.referral_code,
+              packageId: updatedOrd.package_id,
+              orderId: orderId,
+              paymentId: payId,
+              paidAmount: Number(updatedOrd.customer_payable_amount || updatedOrd.amount || 599),
+              originalPrice: Number(updatedOrd.original_price || updatedOrd.amount || 599)
+            }).catch(() => {});
+          }
+        }
       } catch {}
+    } else if (existingFb.user_id && existingFb.package_id && existingFb.referral_code) {
+      creditReferralCommissionForPurchase({
+        referredUserId: existingFb.user_id,
+        referredEmail: existingFb.email || resolvedEmail,
+        referredName: existingFb.full_name || resolvedName,
+        referralCode: existingFb.referral_code,
+        packageId: existingFb.package_id,
+        orderId: orderId,
+        paymentId: payId,
+        paidAmount: Number(existingFb.amount || 599),
+        originalPrice: Number(existingFb.original_price || existingFb.amount || 599)
+      }).catch(() => {});
     }
 
     const inv = await createInvoicePayloadForOrder(orderId, payId, 'paid', {
@@ -7037,6 +7382,21 @@ app.post('/api/razorpay-webhook', async (req: Request, res: Response) => {
               package_id: order.package_id,
               status: 'active'
             });
+
+            // Credit referral commission securely upon webhook-verified payment
+            if (order.referral_code) {
+              creditReferralCommissionForPurchase({
+                referredUserId: order.user_id,
+                referredEmail: order.email,
+                referredName: order.customer_name,
+                referralCode: order.referral_code,
+                packageId: order.package_id,
+                orderId: order.razorpay_order_id,
+                paymentId: payment.id,
+                paidAmount: order.amount,
+                originalPrice: order.original_price
+              }).catch((wErr) => console.warn('[Webhook Referral Commission Warning]:', wErr));
+            }
           }
         }
       }
@@ -7206,17 +7566,19 @@ const handleVerifyPayment = async (req: Request, res: Response, next: NextFuncti
           created_at: new Date().toISOString()
         });
       }
-      creditReferralCommissionForPurchase({
-        referredUserId: targetUserId,
-        referredEmail: email,
-        referredName: full_name,
-        referralCode: referral_code || fbOrder?.referral_code,
-        packageId: resolvedPackageId,
-        orderId: finalOrderId,
-        paymentId: finalPaymentId,
-        paidAmount: amount || fbOrder?.amount || 599,
-        originalPrice: original_price || fbOrder?.original_price
-      }).catch(() => {});
+      if (!isSupabaseConfigured) {
+        creditReferralCommissionForPurchase({
+          referredUserId: targetUserId,
+          referredEmail: email,
+          referredName: full_name,
+          referralCode: referral_code || fbOrder?.referral_code,
+          packageId: resolvedPackageId,
+          orderId: finalOrderId,
+          paymentId: finalPaymentId,
+          paidAmount: amount || fbOrder?.amount || 599,
+          originalPrice: original_price || fbOrder?.original_price
+        }).catch(() => {});
+      }
     }
 
     // Generate & Dispatch Official Invoice Email to Customer & Website Owner

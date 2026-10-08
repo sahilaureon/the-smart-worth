@@ -58,7 +58,13 @@ interface ReferredStudent {
   registered_at: string;
   package_id?: string;
   package_name?: string;
+  original_amount?: number;
+  customer_discount_percent?: number;
+  customer_discount_amount?: number;
+  customer_payable_amount?: number;
   amount_paid: number;
+  company_percent?: number;
+  company_amount?: number;
   rate_percent: number;
   commission_credited: number;
   order_id?: string;
@@ -69,6 +75,7 @@ interface ReferredStudent {
 interface ReferralCodeItem {
   code: string;
   referrer: ReferrerUser;
+  company_percent?: number;
   discount_percent: number;
   earning_percent: number;
   clicks: number;
@@ -179,7 +186,8 @@ export default function ReferredCodeTracker() {
 
   const supabaseSqlScript = `-- =========================================================================
 -- THE SMART WORTH — REFERRAL SYSTEM & REAL COMMISSION CALCULATOR SCHEMA
--- Run this script in your Supabase SQL Editor to enable complete tracking
+-- Fixed 30% Company Share | 51%-70% Referrer Earning | Dynamic Package Pricing
+-- Run this script in your Supabase SQL Editor to verify/apply complete schema
 -- =========================================================================
 
 -- 1. Create or update referral_codes table
@@ -188,8 +196,9 @@ CREATE TABLE IF NOT EXISTS public.referral_codes (
     creator_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
     code TEXT UNIQUE NOT NULL,
-    discount_percent NUMERIC DEFAULT 10,
-    earning_percent NUMERIC DEFAULT 60,
+    company_percent NUMERIC NOT NULL DEFAULT 30 CHECK (company_percent = 30),
+    earning_percent NUMERIC NOT NULL DEFAULT 60 CHECK (earning_percent >= 51 AND earning_percent <= 70),
+    discount_percent NUMERIC NOT NULL DEFAULT 10 CHECK (discount_percent = 70 - earning_percent),
     is_active BOOLEAN DEFAULT TRUE,
     clicks INTEGER DEFAULT 0,
     enrollments INTEGER DEFAULT 0,
@@ -199,7 +208,7 @@ CREATE TABLE IF NOT EXISTS public.referral_codes (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. Create or update referrals conversion records table
+-- 2. Create or update referrals conversion records table (Stores exact financial snapshots)
 CREATE TABLE IF NOT EXISTS public.referrals (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     referrer_id UUID REFERENCES auth.users(id),
@@ -211,50 +220,86 @@ CREATE TABLE IF NOT EXISTS public.referrals (
     package_name TEXT,
     order_id TEXT,
     payment_id TEXT,
-    amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-    rate_percent DECIMAL(5, 2) NOT NULL DEFAULT 60.00,
-    commission_earned DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00, -- Original package price at purchase
+    company_percent NUMERIC NOT NULL DEFAULT 30, -- Fixed 30% company share
+    rate_percent DECIMAL(5, 2) NOT NULL DEFAULT 60.00, -- Referrer earning % (51-70)
+    customer_discount_percent NUMERIC NOT NULL DEFAULT 10.00, -- 70 - earning_percent
+    customer_discount_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    customer_payable_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    company_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     commission_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    commission_earned DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     status TEXT DEFAULT 'completed',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. Useful query to find ALL users who registered under any referral code
--- Replace 'SAHI05F5' with your target referral code:
-SELECT 
-    r.id AS referral_id,
-    r.created_at AS registered_at,
-    r.referral_code,
-    r.amount AS package_price,
-    r.rate_percent AS commission_rate_pct,
-    r.commission_amount AS credited_commission,
-    p_referred.full_name AS student_name,
-    p_referred.email AS student_email,
-    p_referred.mobile AS student_mobile,
-    p_referred.tsw_id AS student_tsw_id,
-    pkg.name AS package_name,
-    p_referrer.full_name AS referrer_name,
-    p_referrer.email AS referrer_email
-FROM public.referrals r
-LEFT JOIN public.profiles p_referred ON (p_referred.id = r.referred_user_id OR p_referred.id = r.referred_id)
-LEFT JOIN public.profiles p_referrer ON p_referrer.id = r.referrer_id
-LEFT JOIN public.packages pkg ON pkg.id = r.package_id
-WHERE UPPER(r.referral_code) = UPPER('SAHI05F5')
-ORDER BY r.created_at DESC;
+-- 3. Duplicate Commission Protection: Unique indexes on successful transaction IDs
+CREATE UNIQUE INDEX IF NOT EXISTS idx_referrals_order_id ON public.referrals (order_id) WHERE order_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_referrals_payment_id ON public.referrals (payment_id) WHERE payment_id IS NOT NULL;
 
--- 4. Enable RLS and Policies
+-- 4. Enable Row Level Security (RLS)
 ALTER TABLE public.referral_codes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.referrals ENABLE ROW LEVEL SECURITY;
 
+-- Normal users can view their own referral codes and referrals
+DROP POLICY IF EXISTS "Users can view own referral codes" ON public.referral_codes;
+CREATE POLICY "Users can view own referral codes" ON public.referral_codes FOR SELECT 
+USING (auth.uid() = user_id OR auth.uid() = creator_id);
+
 DROP POLICY IF EXISTS "Public can view active referral codes" ON public.referral_codes;
-CREATE POLICY "Public can view active referral codes" ON public.referral_codes FOR SELECT USING (true);
+CREATE POLICY "Public can view active referral codes" ON public.referral_codes FOR SELECT 
+USING (is_active = true);
+
+DROP POLICY IF EXISTS "Users can manage own referral codes" ON public.referral_codes;
+CREATE POLICY "Users can manage own referral codes" ON public.referral_codes FOR ALL 
+USING (auth.uid() = user_id OR auth.uid() = creator_id)
+WITH CHECK (
+    (auth.uid() = user_id OR auth.uid() = creator_id) AND
+    earning_percent >= 51 AND earning_percent <= 70 AND
+    company_percent = 30 AND
+    discount_percent = 70 - earning_percent
+);
 
 DROP POLICY IF EXISTS "Users can view their referrals" ON public.referrals;
-CREATE POLICY "Users can view their referrals" ON public.referrals FOR SELECT USING (auth.uid() = referrer_id);
+CREATE POLICY "Users can view their referrals" ON public.referrals FOR SELECT 
+USING (auth.uid() = referrer_id);
+
+-- Admins can view and audit all referral records
+DROP POLICY IF EXISTS "Admins can manage all referral codes" ON public.referral_codes;
+CREATE POLICY "Admins can manage all referral codes" ON public.referral_codes FOR ALL 
+USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR role = 'ADMIN')));
 
 DROP POLICY IF EXISTS "Admins can manage all referrals" ON public.referrals;
 CREATE POLICY "Admins can manage all referrals" ON public.referrals FOR ALL 
 USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR role = 'ADMIN')));
+
+-- 5. Complete Query: Track any referral code and see all registered students & exact financial breakdown
+-- Replace 'SAHI05F5' with your desired referral code to run a complete audit:
+SELECT 
+    r.referral_code,
+    p_referrer.full_name AS referrer_name,
+    p_referrer.email AS referrer_email,
+    p_referred.full_name AS customer_name,
+    p_referred.email AS customer_email,
+    p_referred.mobile AS customer_mobile,
+    p_referred.tsw_id AS customer_tsw_id,
+    r.package_name,
+    r.amount AS original_package_price,
+    r.customer_discount_percent AS discount_percent,
+    r.customer_discount_amount AS discount_amount,
+    r.customer_payable_amount AS final_paid_amount,
+    r.company_amount AS company_share_30_pct,
+    r.rate_percent AS referrer_earning_pct,
+    r.commission_amount AS referrer_commission_credited,
+    r.order_id,
+    r.payment_id,
+    r.status,
+    r.created_at AS transaction_date
+FROM public.referrals r
+LEFT JOIN public.profiles p_referred ON (p_referred.id = r.referred_user_id OR p_referred.id = r.referred_id)
+LEFT JOIN public.profiles p_referrer ON p_referrer.id = r.referrer_id
+WHERE UPPER(r.referral_code) = UPPER('SAHI05F5')
+ORDER BY r.created_at DESC;
 `;
 
   return (
@@ -363,31 +408,53 @@ USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = '
 
       {/* Search & Filter Bar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="relative w-full md:max-w-md">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Search by Code (e.g. SAHI05F5), Name, Email, or TSW ID..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:bg-white focus:border-[#615DFA] outline-none transition-all"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
-            >
-              <X size={14} />
-            </button>
-          )}
+        <div className="flex items-center gap-2 w-full md:max-w-xl">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search by Code (e.g. SAHI05F5), Name, Email, or TSW ID..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && searchQuery.trim()) {
+                  handleOpenCodeDetails(searchQuery.trim().toUpperCase());
+                }
+              }}
+              className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:bg-white focus:border-[#615DFA] outline-none transition-all"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                title="Clear Search"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (searchQuery.trim()) {
+                handleOpenCodeDetails(searchQuery.trim().toUpperCase());
+              }
+            }}
+            disabled={!searchQuery.trim() || loadingDetail}
+            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#615DFA] hover:bg-indigo-600 disabled:opacity-40 text-white text-xs font-bold shadow-2xs transition-colors shrink-0 cursor-pointer"
+            title="Direct Track Code Details"
+          >
+            <Eye size={14} />
+            <span>Track Code</span>
+          </button>
         </div>
 
         <div className="flex items-center gap-2 w-full md:w-auto">
           <select
             value={selectedPackageFilter}
             onChange={(e) => setSelectedPackageFilter(e.target.value)}
-            className="w-full md:w-auto px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none focus:border-[#615DFA] cursor-pointer"
+            className="w-full md:w-auto px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none focus:border-[#615DFA] cursor-pointer"
           >
             <option value="all">All Packages</option>
             {uniquePackages.map((pkgId) => (
@@ -396,7 +463,7 @@ USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = '
               </option>
             ))}
           </select>
-          <span className="text-xs text-slate-500 font-semibold px-2 py-1 bg-slate-100 rounded-lg whitespace-nowrap">
+          <span className="text-xs text-slate-500 font-semibold px-2.5 py-1.5 bg-slate-100 rounded-lg whitespace-nowrap">
             {filteredCodes.length} {filteredCodes.length === 1 ? 'code' : 'codes'}
           </span>
         </div>
@@ -767,78 +834,140 @@ USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = '
                 ) : (
                   <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
                     <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
+                      <table className="w-full text-left border-collapse min-w-[950px]">
                         <thead>
                           <tr className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">
-                            <th className="py-2.5 px-3">Student Name</th>
-                            <th className="py-2.5 px-3">Contact (Email &amp; Mobile)</th>
-                            <th className="py-2.5 px-3">TSW ID</th>
-                            <th className="py-2.5 px-3">Registered At</th>
+                            <th className="py-2.5 px-3">Customer / Student</th>
                             <th className="py-2.5 px-3">Package Enrolled</th>
-                            <th className="py-2.5 px-3 text-right">Amount Paid</th>
-                            <th className="py-2.5 px-3 text-center">Rate %</th>
-                            <th className="py-2.5 px-3 text-right">Commission Credited</th>
+                            <th className="py-2.5 px-3 text-right">Original Price</th>
+                            <th className="py-2.5 px-3 text-right">Discount</th>
+                            <th className="py-2.5 px-3 text-right">Customer Paid</th>
+                            <th className="py-2.5 px-3 text-right">Company (30%)</th>
+                            <th className="py-2.5 px-3 text-right">Commission</th>
+                            <th className="py-2.5 px-3">Order / Payment ID</th>
                             <th className="py-2.5 px-3 text-center">Status</th>
+                            <th className="py-2.5 px-3 text-right">Date</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-xs text-slate-800">
-                          {selectedCodeDetail.referred_users.map((student, idx) => (
-                            <tr key={student.id || idx} className="hover:bg-slate-50/70 transition-colors">
-                              <td className="py-3 px-3">
-                                <span className="font-bold text-slate-900">
-                                  {student.full_name || 'Student'}
-                                </span>
-                              </td>
-                              <td className="py-3 px-3">
-                                <p className="font-medium text-slate-700 text-[11px] truncate max-w-[170px]">
-                                  {student.email || 'N/A'}
-                                </p>
-                                <p className="text-[10px] text-slate-400">
-                                  {student.mobile || 'No mobile'}
-                                </p>
-                              </td>
-                              <td className="py-3 px-3">
-                                <span className="font-mono text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">
-                                  {student.tsw_id || 'TSW-STUDENT'}
-                                </span>
-                              </td>
-                              <td className="py-3 px-3 text-[11px] text-slate-500 whitespace-nowrap">
-                                {student.registered_at
-                                  ? new Date(student.registered_at).toLocaleString('en-IN', {
-                                      day: '2-digit',
-                                      month: 'short',
-                                      year: 'numeric',
-                                      hour: '2-digit',
-                                      minute: '2-digit'
-                                    })
-                                  : 'Recently'}
-                              </td>
-                              <td className="py-3 px-3">
-                                <span className="font-bold uppercase text-[10px] text-slate-800 bg-slate-100 px-2 py-0.5 rounded">
-                                  {student.package_name || student.package_id || 'Course Package'}
-                                </span>
-                              </td>
-                              <td className="py-3 px-3 text-right font-bold text-slate-900">
-                                {formatCurrency(student.amount_paid)}
-                              </td>
-                              <td className="py-3 px-3 text-center">
-                                <span className="font-black text-[11px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">
-                                  {student.rate_percent || 60}%
-                                </span>
-                              </td>
-                              <td className="py-3 px-3 text-right">
-                                <span className="font-extrabold text-emerald-600">
-                                  +{formatCurrency(student.commission_credited)}
-                                </span>
-                              </td>
-                              <td className="py-3 px-3 text-center">
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                                  <ShieldCheck size={11} />
-                                  <span>Credited</span>
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
+                          {selectedCodeDetail.referred_users.map((student, idx) => {
+                            const origPrice = Number(student.original_amount || student.amount_paid || 0);
+                            const discountPct = Number(student.customer_discount_percent ?? (70 - (student.rate_percent || 60)));
+                            const discountAmt = Number(student.customer_discount_amount ?? Math.round((origPrice * discountPct) / 100));
+                            const customerPaid = Number(student.customer_payable_amount ?? student.amount_paid);
+                            const companyAmt = Number(student.company_amount ?? Math.round(origPrice * 0.3));
+                            const commAmt = Number(student.commission_credited ?? Math.round((origPrice * (student.rate_percent || 60)) / 100));
+
+                            return (
+                              <tr key={student.id || idx} className="hover:bg-slate-50/70 transition-colors">
+                                {/* Customer */}
+                                <td className="py-3 px-3">
+                                  <div className="min-w-0">
+                                    <p className="font-bold text-slate-900 truncate">
+                                      {student.full_name || 'Student'}
+                                    </p>
+                                    <p className="text-[11px] text-slate-600 truncate">
+                                      {student.email || 'N/A'}
+                                    </p>
+                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                      <span className="font-mono text-[9px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded">
+                                        {student.tsw_id || 'TSW-STUDENT'}
+                                      </span>
+                                      {student.mobile && (
+                                        <span className="text-[10px] text-slate-400">
+                                          {student.mobile}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+
+                                {/* Package */}
+                                <td className="py-3 px-3">
+                                  <span className="font-bold uppercase text-[10px] text-slate-800 bg-slate-100 px-2 py-0.5 rounded inline-block">
+                                    {student.package_name || student.package_id || 'Course Package'}
+                                  </span>
+                                </td>
+
+                                {/* Original Price */}
+                                <td className="py-3 px-3 text-right font-medium text-slate-500">
+                                  {formatCurrency(origPrice)}
+                                </td>
+
+                                {/* Discount */}
+                                <td className="py-3 px-3 text-right">
+                                  {discountAmt > 0 ? (
+                                    <div>
+                                      <span className="font-bold text-indigo-600">
+                                        -{formatCurrency(discountAmt)}
+                                      </span>
+                                      <span className="block text-[10px] text-slate-400">
+                                        ({discountPct}%)
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-400">0%</span>
+                                  )}
+                                </td>
+
+                                {/* Customer Paid */}
+                                <td className="py-3 px-3 text-right font-bold text-slate-900">
+                                  {formatCurrency(customerPaid)}
+                                </td>
+
+                                {/* Company Share */}
+                                <td className="py-3 px-3 text-right">
+                                  <span className="font-bold text-slate-700">
+                                    {formatCurrency(companyAmt)}
+                                  </span>
+                                  <span className="block text-[10px] text-slate-400 font-semibold">
+                                    (30%)
+                                  </span>
+                                </td>
+
+                                {/* Commission */}
+                                <td className="py-3 px-3 text-right">
+                                  <span className="font-extrabold text-emerald-600">
+                                    +{formatCurrency(commAmt)}
+                                  </span>
+                                  <span className="block text-[10px] font-bold text-purple-700">
+                                    ({student.rate_percent || 60}%)
+                                  </span>
+                                </td>
+
+                                {/* Order & Payment ID */}
+                                <td className="py-3 px-3">
+                                  <div className="font-mono text-[10px] text-slate-600 space-y-0.5">
+                                    <p className="truncate max-w-[120px]" title={student.order_id || 'N/A'}>
+                                      <span className="text-slate-400">Ord:</span> {student.order_id || 'N/A'}
+                                    </p>
+                                    <p className="truncate max-w-[120px]" title={student.payment_id || 'N/A'}>
+                                      <span className="text-slate-400">Pay:</span> {student.payment_id || 'N/A'}
+                                    </p>
+                                  </div>
+                                </td>
+
+                                {/* Status */}
+                                <td className="py-3 px-3 text-center">
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                    <ShieldCheck size={11} />
+                                    <span>{student.status === 'completed' || student.status === 'paid' ? 'Paid' : (student.status || 'Paid')}</span>
+                                  </span>
+                                </td>
+
+                                {/* Date */}
+                                <td className="py-3 px-3 text-[11px] text-slate-500 whitespace-nowrap text-right">
+                                  {student.registered_at
+                                    ? new Date(student.registered_at).toLocaleString('en-IN', {
+                                        day: '2-digit',
+                                        month: 'short',
+                                        year: 'numeric'
+                                      })
+                                    : 'Recently'}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>

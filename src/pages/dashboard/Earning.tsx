@@ -53,7 +53,7 @@ const Earning = () => {
 
   // New Code Form State
   const [newCodeName, setNewCodeName] = useState('');
-  const [discountPercent, setDiscountPercent] = useState(10);
+  const [earningPercent, setEarningPercent] = useState(60);
   const [creatingCode, setCreatingCode] = useState(false);
   const [codeModalError, setCodeModalError] = useState<string | null>(null);
 
@@ -79,12 +79,12 @@ const Earning = () => {
     if (!user) return;
     try {
       const response = await fetchApi(`/referral-codes/${user.id}`);
-      if (!response.ok) throw new Error('Failed to fetch referral codes');
-      const data = await response.json();
-      setReferralCodes(Array.isArray(data) ? data : []);
+      if (response.ok) {
+        const data = await response.json();
+        setReferralCodes(Array.isArray(data) ? data : []);
+      }
     } catch (err: any) {
-      console.error('Error fetching referral codes:', err);
-      setError(err.message);
+      console.warn('[Earning] Error fetching referral codes:', err);
     }
   };
 
@@ -92,11 +92,12 @@ const Earning = () => {
     if (!user) return;
     try {
       const response = await fetchApi(`/payouts/${user.id}`);
-      if (!response.ok) throw new Error('Failed to fetch payouts');
-      const data = await response.json();
-      setPayouts(Array.isArray(data) ? data : []);
+      if (response.ok) {
+        const data = await response.json();
+        setPayouts(Array.isArray(data) ? data : []);
+      }
     } catch (err) {
-      console.error('Error fetching payouts:', err);
+      console.warn('[Earning] Error fetching payouts:', err);
     }
   };
 
@@ -104,15 +105,16 @@ const Earning = () => {
     if (!user) return;
     try {
       const response = await fetchApi(`/withdrawal-methods/${user.id}`);
-      if (!response.ok) throw new Error('Failed to fetch withdrawal methods');
-      const data = await response.json();
-      const list = Array.isArray(data) ? data : [];
-      setWithdrawalMethods(list);
-      if (list.length > 0 && !selectedMethodId) {
-        setSelectedMethodId(list[0].id);
+      if (response.ok) {
+        const data = await response.json();
+        const list = Array.isArray(data) ? data : [];
+        setWithdrawalMethods(list);
+        if (list.length > 0 && !selectedMethodId) {
+          setSelectedMethodId(list[0].id);
+        }
       }
     } catch (err) {
-      console.error('Error fetching withdrawal methods:', err);
+      console.warn('[Earning] Error fetching withdrawal methods:', err);
     }
   };
 
@@ -121,11 +123,12 @@ const Earning = () => {
     setLoadingReferrals(true);
     try {
       const response = await fetchApi(`/referrals/${user.id}`);
-      if (!response.ok) throw new Error('Failed to fetch referrals');
-      const data = await response.json();
-      setReferrals(Array.isArray(data) ? data : []);
+      if (response.ok) {
+        const data = await response.json();
+        setReferrals(Array.isArray(data) ? data : []);
+      }
     } catch (err) {
-      console.error('Error fetching referrals:', err);
+      console.warn('[Earning] Error fetching referrals:', err);
     } finally {
       setLoadingReferrals(false);
     }
@@ -135,12 +138,47 @@ const Earning = () => {
     if (!user) return;
     setLoading(true);
     try {
-      const response = await fetchApi(`/profile/${user.id}`);
-      if (!response.ok) throw new Error('Failed to fetch profile');
-      const data = await response.json();
-      setUserData(data || { wallet_balance: 0, pending_balance: 0, approved_balance: 0 });
+      let profileData: any = null;
 
-      await Promise.all([
+      // 1. Try specific user profile by ID
+      try {
+        const response = await fetchApi(`/profile/${user.id}`);
+        if (response.ok) {
+          profileData = await response.json();
+        }
+      } catch (pErr) {
+        console.warn('[Earning] Direct profile fetch notice:', pErr);
+      }
+
+      // 2. Try current authenticated session profile
+      if (!profileData) {
+        try {
+          const generalResponse = await fetchApi('/profile');
+          if (generalResponse.ok) {
+            profileData = await generalResponse.json();
+          }
+        } catch {}
+      }
+
+      // 3. Fallback to current authenticated user state
+      if (!profileData) {
+        profileData = {
+          id: user.id,
+          email: user.email || '',
+          full_name: user.user_metadata?.full_name || user.full_name || user.email?.split('@')[0] || 'Member',
+          wallet_balance: Number(user.wallet_balance || 0),
+          pending_balance: Number(user.pending_balance || 0),
+          approved_balance: Number(user.approved_balance || 0),
+          total_earned: Number(user.total_earned || 0),
+          package_id: user.package_id || 'silver',
+          referral_code: user.referral_code || null
+        };
+      }
+
+      setUserData(profileData);
+
+      // Fetch supplementary earning items concurrently and safely
+      await Promise.allSettled([
         fetchReferralCodes(),
         fetchPayouts(),
         fetchWithdrawalMethods(),
@@ -148,8 +186,16 @@ const Earning = () => {
       ]);
       setError(null);
     } catch (err: any) {
-      console.error('[Earning] Error fetching user data:', err);
-      setError(err.message || 'Failed to connect to backend.');
+      console.warn('[Earning] Notice in fetchUserData:', err);
+      setUserData((prev: any) => prev || {
+        id: user.id,
+        email: user.email || '',
+        full_name: user.full_name || 'Member',
+        wallet_balance: 0,
+        pending_balance: 0,
+        approved_balance: 0,
+        total_earned: 0
+      });
     } finally {
       setLoading(false);
     }
@@ -180,29 +226,29 @@ const Earning = () => {
 
     setCreatingCode(true);
     try {
-      const earningPercent = 70 - discountPercent;
+      const discount = 70 - earningPercent;
       const response = await fetchApi('/referral-codes', {
         method: 'POST',
         body: JSON.stringify({
           code: newCodeName.toUpperCase().trim().replace(/\s+/g, ''),
-          discount_percent: discountPercent,
-          earning_percent: earningPercent
+          earning_percent: earningPercent,
+          discount_percent: discount
         })
       });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || 'Failed to create code');
+        setCodeModalError(errData.error || 'This referral code is not available. Please choose another code.');
+        return;
       }
 
       setShowCreateModal(false);
       setNewCodeName('');
-      setDiscountPercent(10);
+      setEarningPercent(60);
       await fetchReferralCodes();
-      setFeedback({ type: 'success', text: 'Referral code created successfully.' });
+      setFeedback({ type: 'success', text: 'Referral code saved successfully.' });
     } catch (err: any) {
-      console.error('Exception creating code:', err);
-      setCodeModalError(err.message || 'Failed to create referral code.');
+      setCodeModalError(err?.message || 'Failed to save referral code. Please try another code.');
     } finally {
       setCreatingCode(false);
     }
@@ -558,13 +604,15 @@ const Earning = () => {
                           <p className="font-bold text-base tracking-wide text-slate-900 font-mono">
                             {code.code}
                           </p>
-                          <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs font-medium text-slate-600">
-                            <span className="text-indigo-700 font-semibold">
-                              {code.discount_percent}% Flat Off
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+                              My Earning: {code.earning_percent || 60}%
                             </span>
-                            <span aria-hidden="true">·</span>
-                            <span className="text-emerald-700 font-semibold">
-                              {code.earning_percent}% Commission
+                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-bold border border-indigo-200">
+                              Customer Discount: {70 - (code.earning_percent || 60)}%
+                            </span>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-bold border border-slate-200">
+                              Company Share: 30%
                             </span>
                           </div>
                         </div>
@@ -598,7 +646,7 @@ const Earning = () => {
                       </div>
                     </div>
 
-                    <div className="pt-2.5 border-t border-slate-200/80 flex items-center gap-4 text-xs font-medium text-slate-500">
+                    <div className="pt-2.5 border-t border-slate-200/80 flex flex-wrap items-center gap-4 text-xs font-medium text-slate-500">
                       <span className="inline-flex items-center gap-1">
                         <TrendingUp size={13} className="text-indigo-600" />
                         <span>{code.clicks || 0} Clicks</span>
@@ -606,7 +654,11 @@ const Earning = () => {
                       <span>·</span>
                       <span className="inline-flex items-center gap-1">
                         <Users size={13} className="text-emerald-600" />
-                        <span>{code.enrollments || 0} Conversions</span>
+                        <span>{code.enrollments || code.usage_count || 0} Enrollments</span>
+                      </span>
+                      <span>·</span>
+                      <span className="inline-flex items-center gap-1 text-slate-700 font-bold">
+                        <span>Earnings: ₹{(code.total_earnings || 0).toLocaleString('en-IN')}</span>
                       </span>
                     </div>
                   </div>
@@ -1399,43 +1451,50 @@ const Earning = () => {
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
                     <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Friend&apos;s Discount
+                      My Earning Percentage
                     </label>
-                    <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded border border-indigo-200">
-                      {discountPercent}%
+                    <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-200 font-mono">
+                      {earningPercent}%
                     </span>
                   </div>
                   <input
                     type="range"
-                    min="1"
-                    max="20"
-                    value={discountPercent}
-                    onChange={(e) => setDiscountPercent(parseInt(e.target.value))}
-                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                    min="51"
+                    max="70"
+                    step="1"
+                    value={earningPercent}
+                    onChange={(e) => setEarningPercent(parseInt(e.target.value))}
+                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600"
                   />
                   <div className="flex justify-between text-[11px] font-medium text-slate-400">
-                    <span>1% Minimum</span>
-                    <span>20% Maximum</span>
+                    <span>51% Minimum</span>
+                    <span>70% Maximum</span>
                   </div>
                 </div>
 
-                <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-9 h-9 rounded-md bg-indigo-600 text-white flex items-center justify-center shrink-0">
-                      <Percent size={16} />
+                {/* The Smart Worth 3-Way Automatic Revenue Distribution */}
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Revenue Distribution (Guaranteed 100%)
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
+                      <p className="text-[11px] text-slate-500 font-semibold">My Earning</p>
+                      <p className="text-base font-extrabold text-emerald-600">{earningPercent}%</p>
                     </div>
-                    <div>
-                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                        Your Commission
-                      </p>
-                      <p className="text-base font-bold text-slate-900">
-                        {70 - discountPercent}% Per Sale
-                      </p>
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
+                      <p className="text-[11px] text-slate-500 font-semibold">Friend Discount</p>
+                      <p className="text-base font-extrabold text-indigo-600">{70 - earningPercent}%</p>
+                    </div>
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
+                      <p className="text-[11px] text-slate-500 font-semibold">Company Share</p>
+                      <p className="text-base font-extrabold text-slate-800">30%</p>
                     </div>
                   </div>
-                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
-                    Active Rate
-                  </span>
+                  <div className="flex items-center justify-between text-[11px] font-medium text-slate-600 pt-1 border-t border-slate-200/60">
+                    <span>Model: Fixed 30% Company</span>
+                    <span className="text-emerald-700 font-bold">Total: {earningPercent + (70 - earningPercent) + 30}%</span>
+                  </div>
                 </div>
               </div>
 

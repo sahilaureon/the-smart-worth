@@ -65,7 +65,8 @@ const ADMIN_EMAILS = new Set([
   String(CONFIG.ADMIN_EMAIL || '').trim().toLowerCase(),
   'sahilbaislaa@gmail.com',
   'sahilaureon@gmail.com',
-  'helplinesmartworth@gmail.com'
+  'helplinesmartworth@gmail.com',
+  'theotpworth@gmail.com'
 ]);
 
 const isInstantAdminUser = (u: any): boolean => {
